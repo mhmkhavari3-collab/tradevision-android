@@ -1,177 +1,54 @@
 package com.tradevision
-
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.tradevision.auth.AuthManager
-import com.tradevision.util.TradeVisionWebViewClient
 import com.tradevision.ws.PriceWebSocket
-
 class MainActivity : AppCompatActivity(), PriceWebSocket.PriceUpdateListener {
-
-    companion object {
-        private const val TAG = "MainActivity"
-        private const val WEB_APP_URL = "https://tradevision.app"
-        private const val WEB_APP_URL_DEBUG = "http://10.0.2.2:3000"
-    }
-
+    companion object { private const val TAG = "MainActivity"; private const val WEB_URL = "https://tradevision.app"; private const val WEB_DEBUG = "http://10.0.2.2:3000" }
     private lateinit var webView: WebView
-    private lateinit var webViewClient: TradeVisionWebViewClient
-    private lateinit var authManager: AuthManager
+    private var authManager: AuthManager? = null
     private var priceWebSocket: PriceWebSocket? = null
-
+    @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Log.d(TAG, "onCreate")
-
         setContentView(R.layout.activity_main)
-
-        authManager = AuthManager.getInstance()
-
-        setupWebView()
-        setupSwipeRefresh()
-        loadWebApp()
-
-        handleIntent(intent)
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        handleIntent(intent)
-    }
-
-    private fun setupWebView() {
+        try { authManager = AuthManager.getInstance() } catch (e: Exception) { Log.e(TAG, "Auth err", e) }
         webView = findViewById(R.id.webview)
-
-        webView.settings.apply {
-            javaScriptEnabled = true
-            domStorageEnabled = true
-            allowFileAccess = true
-            allowContentAccess = true
-            loadWithOverviewMode = true
-            useWideViewPort = true
-            setSupportZoom(false)
-            builtInZoomControls = false
-            displayZoomControls = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            cacheMode = WebSettings.LOAD_DEFAULT
-            databaseEnabled = true
-            setSupportMultipleWindows(false)
-            mediaPlaybackRequiresUserGesture = false
+        webView.settings.apply { javaScriptEnabled = true; domStorageEnabled = true; allowFileAccess = true; loadWithOverviewMode = true; useWideViewPort = true; setSupportZoom(false); cacheMode = WebSettings.LOAD_DEFAULT; databaseEnabled = true }
+        webView.webViewClient = object : WebViewClient() {
+            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) { if (request?.isForMainFrame == true) view?.loadData("<html><body style='background:#0f0f1a;color:#fff;display:flex;align-items:center;justify-content:center;height:100vh;font-family:sans-serif;text-align:center'><div><h1 style='color:#4fc3f7'>TradeVision</h1><p>Loading...</p></div></body></html>","text/html","UTF-8") }
         }
-
-        webViewClient = TradeVisionWebViewClient(this)
-        webView.webViewClient = webViewClient
         webView.webChromeClient = WebChromeClient()
-
         webView.addJavascriptInterface(WebAppBridge(), "TradeVisionBridge")
+        webView.loadUrl(if (BuildConfig.DEBUG) WEB_DEBUG else WEB_URL)
+        handleIntent(intent)
     }
-
-    private fun setupSwipeRefresh() {
-        val swipeRefresh = findViewById<androidx.swiperefreshlayout.widget.SwipeRefreshLayout>(R.id.swipe_refresh)
-        swipeRefresh.setOnRefreshListener {
-            webView.reload()
-            swipeRefresh.isRefreshing = false
-        }
-    }
-
-    private fun loadWebApp() {
-        val url = if (BuildConfig.DEBUG) WEB_APP_URL_DEBUG else WEB_APP_URL
-        Log.d(TAG, "Loading web app: $url")
-        webView.loadUrl(url)
-    }
-
-    private fun handleIntent(intent: Intent) {
-        val screen = intent.getStringExtra("screen")
-        val symbol = intent.getStringExtra("symbol")
-        val alertId = intent.getStringExtra("alert_id")
-
-        if (screen != null) {
-            Log.d(TAG, "Deep link: screen=$screen, symbol=$symbol, alertId=$alertId")
-            val js = "javascript:handleDeepLink('$screen', '$symbol', '$alertId')"
-            webView.evaluateJavascript(js, null)
-        }
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            @Suppress("DEPRECATION")
-            super.onBackPressed()
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        webView.onResume()
-        startPriceWebSocket()
-    }
-
-    override fun onPause() {
-        super.onPause()
-        webView.onPause()
-stopPriceWebSocket()
-    }
-
-    override fun onDestroy() {
-        stopPriceWebSocket()
-        webView.destroy()
-        super.onDestroy()
-    }
-
-    private fun startPriceWebSocket() {
-        if (priceWebSocket == null) {
-            priceWebSocket = PriceWebSocket(this)
-            priceWebSocket?.start()
-        }
-    }
-
-    private fun stopPriceWebSocket() {
-        priceWebSocket?.stop()
-        priceWebSocket = null
-    }
-
-    override fun onPriceUpdate(symbol: String, price: Double) {
-        Log.d(TAG, "Price update: $symbol = $price")
-        runOnUiThread {
-            webView.evaluateJavascript("javascript:onPriceUpdate('$symbol', $price)", null)
-        }
-    }
-
-    override fun onConnectionStateChange(connected: Boolean) {
-        Log.d(TAG, "WebSocket connected: $connected")
-    }
-
+    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); handleIntent(intent) }
+    private fun handleIntent(intent: Intent) { val s = intent.getStringExtra("screen") ?: return; webView.evaluateJavascript("javascript:handleDeepLink('$s','${intent.getStringExtra("symbol")}','')", null) }
+    @Deprecated("Deprecated in Java") override fun onBackPressed() { if (webView.canGoBack()) webView.goBack() else @Suppress("DEPRECATION") super.onBackPressed() }
+    override fun onResume() { super.onResume(); webView.onResume(); try { if (priceWebSocket == null) { priceWebSocket = PriceWebSocket(this); priceWebSocket?.start() } } catch (e: Exception) {} }
+    override fun onPause() { super.onPause(); webView.onPause(); try { priceWebSocket?.stop(); priceWebSocket = null } catch (e: Exception) {} }
+    override fun onDestroy() { try { priceWebSocket?.stop() } catch (e: Exception) {}; webView.destroy(); super.onDestroy() }
+    override fun onPriceUpdate(symbol: String, price: Double) { try { runOnUiThread { webView.evaluateJavascript("javascript:onPriceUpdate('$symbol',$price)", null) } } catch (e: Exception) {} }
+    override fun onConnectionStateChange(connected: Boolean) {}
     inner class WebAppBridge {
-        @JavascriptInterface
-        fun getAppVersion(): String = BuildConfig.VERSION_NAME
-
-        @JavascriptInterface
-        fun getPlatform(): String = "android"
-
-        @JavascriptInterface
-        fun showToast(message: String) {
-            runOnUiThread {
-                Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        @JavascriptInterface
-        fun isLoggedIn(): Boolean = authManager.isLoggedIn()
-
-        @JavascriptInterface
-        fun getAccessToken(): String? = authManager.getAccessToken()
-
-        @JavascriptInterface
-        fun getUserId(): String? = authManager.getUserId()
+        @JavascriptInterface fun getAppVersion(): String = BuildConfig.VERSION_NAME
+        @JavascriptInterface fun getPlatform(): String = "android"
+@JavascriptInterface fun showToast(msg: String) { runOnUiThread { Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show() } }
+        @JavascriptInterface fun isLoggedIn(): Boolean = try { authManager?.isLoggedIn() ?: false } catch (e: Exception) { false }
+        @JavascriptInterface fun getAccessToken(): String? = try { authManager?.getAccessToken() } catch (e: Exception) { null }
+        @JavascriptInterface fun getUserId(): String? = try { authManager?.getUserId() } catch (e: Exception) { null }
     }
 }
