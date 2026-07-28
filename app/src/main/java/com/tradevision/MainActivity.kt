@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -118,7 +119,7 @@ class MainActivity : AppCompatActivity(), PriceWebSocket.PriceUpdateListener {
     override fun onPause() {
         super.onPause()
         webView.onPause()
-        stopPriceWebSocket()
+stopPriceWebSocket()
     }
 
     override fun onDestroy() {
@@ -139,7 +140,6 @@ class MainActivity : AppCompatActivity(), PriceWebSocket.PriceUpdateListener {
         priceWebSocket = null
     }
 
-    // ── PriceWebSocket callbacks ───────────────────────────────
     override fun onPriceUpdate(symbol: String, price: Double) {
         Log.d(TAG, "Price update: $symbol = $price")
         runOnUiThread {
