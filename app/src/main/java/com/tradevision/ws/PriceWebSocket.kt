@@ -1,64 +1,16 @@
 package com.tradevision.ws
-
 import android.util.Log
 import okhttp3.*
 import java.util.concurrent.TimeUnit
-
 class PriceWebSocket(private val listener: PriceUpdateListener) {
-
-    companion object {
-        private const val TAG = "PriceWebSocket"
-        private const val WS_URL = "wss://ws.okx.com/api/v5/public/ws"
-    }
-
-    interface PriceUpdateListener {
-        fun onPriceUpdate(symbol: String, price: Double)
-        fun onConnectionStateChange(connected: Boolean)
-    }
-
-    private var webSocket: WebSocket? = null
-    private val client = OkHttpClient.Builder()
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .build()
-
-    fun start() {
-        val request = Request.Builder().url(WS_URL).build()
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(TAG, "WebSocket connected")
-                listener.onConnectionStateChange(true)
-                val msg = "{\"op\":\"subscribe\",\"args\":[{\"channel\":\"tickers\",\"instId\":\"XAU-USDT-SWAP\"}]}"
-                webSocket.send(msg)
-            }
-
-            override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d(TAG, "Message: $text")
-                try {
-                    val json = com.google.gson.JsonParser.parseString(text).asJsonObject
-                    val data = json.getAsJsonArray("data")
-                    if (data != null && data.size() > 0) {
-                        val item = data[0].asJsonObject
-                        val symbol = item.get("instId")?.asString ?: ""
-                        val price = item.get("last")?.asString?.toDoubleOrNull() ?: 0.0
-                        listener.onPriceUpdate(symbol, price)
-                    }
-                } catch (e: Exception) { Log.e(TAG, "Parse error", e) }
-            }
-
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "WebSocket closed: $code")
-                listener.onConnectionStateChange(false)
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket error", t)
-                listener.onConnectionStateChange(false)
-            }
-        })
-    }
-
-    fun stop() {
-        webSocket?.close(1000, "Stopping")
-        webSocket = null
-    }
+    interface PriceUpdateListener { fun onPriceUpdate(symbol: String, price: Double); fun onConnectionStateChange(connected: Boolean) }
+    private var ws: WebSocket? = null
+    private val client = OkHttpClient.Builder().readTimeout(0, TimeUnit.MILLISECONDS).connectTimeout(10, TimeUnit.SECONDS).build()
+    fun start() { try { ws = client.newWebSocket(Request.Builder().url("wss://ws.okx.com:8443/api/v5/public/ws").build(), object : WebSocketListener() {
+        override fun onOpen(w: WebSocket, r: Response) { listener.onConnectionStateChange(true); try { w.send("{\"op\":\"subscribe\",\"args\":[{\"channel\":\"tickers\",\"instId\":\"XAU-USDT-SWAP\"}]}") } catch (e: Exception) {} }
+        override fun onMessage(w: WebSocket, text: String) { try { val d = com.google.gson.JsonParser.parseString(text).asJsonObject.getAsJsonArray("data"); if (d != null && d.size() > 0) { val i = d[0].asJsonObject; val p = i.get("last")?.asString?.toDoubleOrNull() ?: 0.0; if (p > 0) listener.onPriceUpdate(i.get("instId")?.asString ?: "", p) } } catch (e: Exception) {} }
+        override fun onFailure(w: WebSocket, t: Throwable, r: Response?) { listener.onConnectionStateChange(false) }
+        override fun onClosed(w: WebSocket, c: Int, r: String) { listener.onConnectionStateChange(false) }
+    }) } catch (e: Exception) { listener.onConnectionStateChange(false) } }
+    fun stop() { try { ws?.close(1000, "Stop"); ws = null } catch (e: Exception) {} }
 }
