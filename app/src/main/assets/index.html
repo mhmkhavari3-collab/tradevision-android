@@ -178,8 +178,8 @@ var SYMS=[
 var TIMEFRAMES=[{id:'1m',l:'1m'},{id:'5m',l:'5m'},{id:'15m',l:'15m'},{id:'1H',l:'1H'},{id:'4H',l:'4H'},{id:'1D',l:'1D'}];
 var INDS=['SMA 20','SMA 50','EMA 12','EMA 26','RSI 14','MACD','Bollinger Bands'];
 var DRAWS=[{id:'hline',l:'━ Horizontal'},{id:'tline',l:'╱ Trend'},{id:'clear',l:'✕ Clear'}];
-var OANDA_TOKEN='0dcfea75f50aa3b19d0e8c4810a865f4-e23a605e060d62d2d3e3011d1156f124';
-var OANDA_BASE='https://api-fxtrade.oanda.com/v3/instruments';
+var OANDA_TOKEN='';
+var OANDA_BASE='https://tradevision-oanda-proxy.vlmprofileo.workers.dev';
 var OANDA_MAP={'EUR-USD':'EUR_USD','GBP-USD':'GBP_USD','USD-JPY':'USD_JPY','AUD-USD':'AUD_USD','USD-CHF':'USD_CHF','XAU-USDT-SWAP':'XAU_USD','XAG-USDT-SWAP':'XAG_USD','WTI-USD-SWAP':'WTICO_USD','BRENT-USD-SWAP':'BCO_USD'};
 var OANDA_TF={'1m':'M1','5m':'M5','15m':'M15','1H':'H1','4H':'H4','1D':'D'};
 
@@ -198,9 +198,7 @@ function connectWS(){
       try{
         var msg=JSON.parse(evt.data);
         if(msg.data)msg.data.forEach(function(t){
-          if(t.instId&&t.last){
-            S.prices[t.instId]={last:t.last,sodUtc8:t.sodUtc8||t.open24h||t.last,vol24h:t.volCcy24h||'0',high24h:t.high24h||'0',low24h:t.low24h||'0',change24h:t.change24h||'0'};
-          }
+          if(t.instId&&t.last){S.prices[t.instId]={last:t.last,sodUtc8:t.sodUtc8||t.open24h||t.last,vol24h:t.volCcy24h||'0'};}
         });
         refreshView();
       }catch(e){}
@@ -225,22 +223,22 @@ function saveSettings(){try{localStorage.setItem('tv_settings',JSON.stringify(S.
 function refreshView(){buildAssetList();updateChartHeader();checkAlerts();}
 // ===== OANDA API =====
 function fetchOANDA(sym,tf){
-  var inst=OANDA_MAP[sym];if(!inst)return Promise.resolve(null);
-  var oTf=OANDA_TF[tf]||'M15';
-  var url=OANDA_BASE+'/'+inst+'/candles?count=500&granularity='+oTf+'&price=M';
-  return fetch(url,{headers:{'Authorization':'Bearer '+OANDA_TOKEN}}).then(function(r){return r.json()}).then(function(d){
+  var oSym=sym.replace(/-/g,'').replace('USD','USD');
+  var url=OANDA_BASE+'/candles?symbol='+oSym+'&timeframe='+tf+'&count=500';
+  return fetch(url).then(function(r){return r.json()}).then(function(d){
     if(!d||!d.candles)return null;
-    var candles=d.candles.map(function(c){var m=c.mid||c.bid||c.ask;return{time:new Date(c.time).getTime()/1000,open:parseFloat(m.o),high:parseFloat(m.h),low:parseFloat(m.l),close:parseFloat(m.c),volume:c.volume||0}});
-    var seen={};return candles.filter(function(c){if(seen[c.time])return false;seen[c.time]=true;return true});
+    return d.candles;
   }).catch(function(){return null});
 }
 function fetchOANDAprices(){
-  return Promise.all(Object.keys(OANDA_MAP).filter(function(s){return OANDA_MAP[s]}).map(function(s){
-    var inst=OANDA_MAP[s];
-    return fetch(OANDA_BASE+'/'+inst+'/candles?count=1&granularity=M1&price=BAM',{headers:{'Authorization':'Bearer '+OANDA_TOKEN}}).then(function(r){return r.json()}).then(function(d){
-      if(d&&d.candles&&d.candles.length>0){var c=d.candles[0];var mid=c.mid||{};S.prices[s]={last:mid.c,ask:c.ask?c.ask.c:mid.c,bid:c.bid?c.bid.c:mid.c,sodUtc8:mid.o};
-      }}).catch(function(){});
-  }));
+  var oandaSyms=Object.keys(OANDA_MAP).filter(function(s){return OANDA_MAP[s]}).map(function(s){return s.replace(/-/g,'')});
+  return fetch(OANDA_BASE+'/price?symbols='+oandaSyms.join(',')).then(function(r){return r.json()}).then(function(d){
+    if(d&&d.prices){d.prices.forEach(function(p){
+      var origSym=Object.keys(OANDA_MAP).find(function(k){return k.replace(/-/g,'')===p.symbol});
+      if(origSym&&p.mid){S.prices[origSym]={last:p.mid,ask:p.ask,bid:p.bid,sodUtc8:p.open};}
+    });}
+  }).catch(function(){});
+}
 }
 
 // ===== PRICES =====
@@ -642,11 +640,11 @@ function init(){
   buildTabs();buildAssetList();buildTFBar();buildIndBar();buildDrawBar();
   renderAlerts();buildSettings();
   fetchAllPrices();
-  connectWS();
-  pollTimer=setInterval(fetchAllPrices,5000);
+  pollTimer=setInterval(fetchAllPrices,3000);
   setInterval(checkAlerts,1500);
   setInterval(updateCandleTimer,1000);updateCandleTimer();
   setInterval(function(){if(S.page==='chart'&&S.cur)simulateLiveCandle()},500);
+  setInterval(function(){if(S.page==='chart'&&S.cur)fetchOANDAprices().then(function(){updateChartHeader()})},3000);
   document.getElementById('hdrSymBtn').addEventListener('click',openSymModal);
   document.getElementById('symSearch').addEventListener('input',function(){filterSymList(this.value)});
   document.getElementById('symOverlay').addEventListener('click',function(e){if(e.target===this)closeSymModal()});
