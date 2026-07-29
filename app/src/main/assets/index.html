@@ -510,49 +510,24 @@ function deleteAlert(id){alerts=alerts.filter(a=>a.id!==id);localStorage.setItem
 function buildTFBar(){let h='';TIMEFRAMES.forEach(t=>{h+='<div class="tf-btn'+(t.id===CURRENT_TF?' active':'')+'" data-tf="'+t.id+'" onclick="setTF(\''+t.id+'\')">'+t.l+'</div>'});document.getElementById('tfBar').innerHTML=h}
 function setTF(tf){CURRENT_TF=tf;buildTFBar();loadCandles(cur.sym,tf);if(page==='CH'){connectWS(cur.sym);if(cur.crypto)connectCryptoWS(cur.sym)}}
 
-
-/* ============ PULL-TO-REFRESH FIX ============ */
-function initPullToRefresh(){
-  const scrollContainers = [
-    document.getElementById('wlList'),
-    document.getElementById('chartWrap')
-  ];
-  scrollContainers.forEach(container => {
-    if(!container) return;
-    let startY = 0;
-    container.addEventListener('touchstart', e => {
-      startY = e.touches[0].clientY;
-    }, {passive: true});
-    container.addEventListener('touchmove', e => {
-      const scrollTop = container.scrollTop;
-      const deltaY = e.touches[0].clientY - startY;
-      if(scrollTop === 0 && deltaY > 0) {
-        e.preventDefault();
-      }
-    }, {passive: false});
-  });
-  // Body level: only at very top of page
-  let bodyStartY = 0;
-  document.body.addEventListener('touchstart', e => {
-    bodyStartY = e.touches[0].clientY;
-  }, {passive: true});
-  document.body.addEventListener('touchmove', e => {
-    const deltaY = e.touches[0].clientY - bodyStartY;
-    if(window.scrollY === 0 && deltaY > 0) {
-      e.preventDefault();
-    }
-  }, {passive: false});
-}
-
 /* ============ INIT ============ */
 function init(){
   buildWL(); buildTFBar(); fetchPrices(); startPricePoll();
-  initPullToRefresh();
   history.pushState(null,'',location.href);
   window.addEventListener('popstate',()=>history.pushState(null,'',location.href));
-  document.addEventListener('touchmove',e=>{if(e.target===document.body||e.target===document.getElementById('app'))e.preventDefault()},{passive:false});
-  document.body.style.touchAction='none';document.body.style.overscrollBehavior='none';
-  document.documentElement.style.overscrollBehavior='none';
+  
+  // Pull-to-refresh ONLY on watchlist container, only at top
+  const wl = document.getElementById('wlList');
+  if(wl){
+    let startY = 0;
+    wl.addEventListener('touchstart', e => { startY = e.touches[0].clientY; }, {passive: true});
+    wl.addEventListener('touchmove', e => {
+      if(wl.scrollTop === 0 && e.touches[0].clientY > startY) {
+        e.preventDefault();
+      }
+    }, {passive: false});
+  }
+  
   document.getElementById('wlSearch').addEventListener('input',e=>{filterWL(e.target.value)});
   document.getElementById('alPrice').addEventListener('keypress',e=>{if(e.key==='Enter')createAlert()});
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
