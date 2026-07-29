@@ -4,7 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>TradeVision</title>
-<script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<script src="https://market-stream.mamali163345.workers.dev/lib.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;outline:none}
 html,body{position:fixed;width:100%;height:100%;overflow:hidden;overscroll-behavior:none;background:#0a0e14;color:#c5c8c9;font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-tap-highlight-color:transparent;user-select:none}
@@ -200,7 +203,11 @@ function loadMoreHistory(){
 function updateChHeader(){var p=prices[cur.sym];if(!p||!p.mid)return;var last=Number(p.mid),open=Number(p.open||0);var chg=open>0?((last-open)/open*100):0;var c=chg>=0?'up':'dn';document.getElementById('chPrice').textContent=fp(last,cur.prec);document.getElementById('chPrice').className='ch-price '+c;var ce=document.getElementById('chChg');ce.textContent=pct(chg);ce.className='ch-chg '+c;document.getElementById('hdrPrice').textContent=fp(last,cur.prec);document.getElementById('hdrPrice').style.color=chg>=0?'#26a69a':'#ef5350'}
 function buildTFBar(){var h='';TIMEFRAMES.forEach(function(t){h+='<div class="tf-btn'+(t.id===tf?' on':'')+'" onclick="setTF(\''+t.id+'\')">'+t.l+'</div>'});document.getElementById('tfBar').innerHTML=h}
 function setTF(t){tf=t;buildTFBar();loadCandles(cur.sym,tf);if(page==='CH')connectWS(cur.sym)}
-function init(){buildWL();buildTFBar();fetchPrices();setInterval(fetchPrices,5000)}
+function init(){
+  history.pushState(null,"",location.href);
+  window.addEventListener("popstate",function(){history.pushState(null,"",location.href)});
+  document.addEventListener("touchmove",function(e){if(e.target===document.body)e.preventDefault()},{passive:false});
+  buildWL();buildTFBar();fetchPrices();setInterval(fetchPrices,5000)}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 </script>
 </body>
