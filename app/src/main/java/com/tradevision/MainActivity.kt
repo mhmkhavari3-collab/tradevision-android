@@ -21,6 +21,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Enable WebView remote debugging for chrome://inspect (works in release too)
+        WebView.setWebContentsDebuggingEnabled(true)
+
         webView = findViewById(R.id.webview)
         setupWebView()
         loadApp()
