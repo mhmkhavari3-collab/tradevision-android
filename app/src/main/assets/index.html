@@ -235,6 +235,17 @@ var SYMBOLS = [
   {sym:'NZDCAD',name:'Kiwi/Loonie',display:'NZD/CAD',icon:'🇳🇿',color:'#00247D',cat:'forex',broker:'OANDA'},
   {sym:'NZDCHF',name:'Kiwi/Swiss',display:'NZD/CHF',icon:'🇳🇿',color:'#00247D',cat:'forex',broker:'OANDA'},
   {sym:'CHFJPY',name:'Swiss/Yen',display:'CHF/JPY',icon:'🇨🇭',color:'#D52B1E',cat:'forex',broker:'OANDA'},
+  // Crypto (OKX)
+  {sym:'BTC-USDT',name:'Bitcoin',display:'BTC/USDT',icon:'₿',color:'#f7931a',cat:'crypto',broker:'OKX'},
+  {sym:'ETH-USDT',name:'Ethereum',display:'ETH/USDT',icon:'Ξ',color:'#627eea',cat:'crypto',broker:'OKX'},
+  {sym:'SOL-USDT',name:'Solana',display:'SOL/USDT',icon:'◎',color:'#9945ff',cat:'crypto',broker:'OKX'},
+  {sym:'XRP-USDT',name:'Ripple',display:'XRP/USDT',icon:'X',color:'#23292f',cat:'crypto',broker:'OKX'},
+  {sym:'ADA-USDT',name:'Cardano',display:'ADA/USDT',icon:'◆',color:'#0033ad',cat:'crypto',broker:'OKX'},
+  {sym:'DOGE-USDT',name:'Dogecoin',display:'DOGE/USDT',icon:'Ð',color:'#c2a633',cat:'crypto',broker:'OKX'},
+  {sym:'AVAX-USDT',name:'Avalanche',display:'AVAX/USDT',icon:'▲',color:'#e84142',cat:'crypto',broker:'OKX'},
+  {sym:'DOT-USDT',name:'Polkadot',display:'DOT/USDT',icon:'●',color:'#e6007a',cat:'crypto',broker:'OKX'},
+  {sym:'LINK-USDT',name:'Chainlink',display:'LINK/USDT',icon:'⬡',color:'#2a5ada',cat:'crypto',broker:'OKX'},
+  {sym:'MATIC-USDT',name:'Polygon',display:'MATIC/USDT',icon:'⬡',color:'#8247e5',cat:'crypto',broker:'OKX'},
 ];
 
 var TIMEFRAMES = [{id:'1m',l:'1m'},{id:'5m',l:'5m'},{id:'15m',l:'15m'},{id:'1H',l:'1H'},{id:'4H',l:'4H'},{id:'1D',l:'1D'}];
@@ -271,17 +282,60 @@ function toast(msg,type) {
 
 // ===== PRICE FETCH =====
 function fetchAllPrices() {
-  var syms = SYMBOLS.map(function(s){return s.sym}).join(',');
-  fetch(PROXY+'/price?symbols='+syms).then(function(r){return r.json()}).then(function(d){
-    if (d.prices) {
-      d.prices.forEach(function(p){
-        if (p.mid !== null && p.mid !== undefined) {
-          S.prices[p.symbol] = {last:p.mid, bid:p.bid, ask:p.ask, sodUtc8:p.open, spread:p.spread, time:p.time};
-        }
-      });
-    }
-    refreshView();
-  }).catch(function(){refreshView()});
+  // OANDA symbols via Worker proxy
+  var oandaSyms = SYMBOLS.filter(function(s){return s.broker==='OANDA'}).map(function(s){return s.sym}).join(',');
+  if (oandaSyms) {
+    fetch(PROXY+'/price?symbols='+oandaSyms).then(function(r){return r.json()}).then(function(d){
+      if (d.prices) {
+        d.prices.forEach(function(p){
+          if (p.mid !== null && p.mid !== undefined) {
+            S.prices[p.symbol] = {last:p.mid, bid:p.bid, ask:p.ask, sodUtc8:p.open, spread:p.spread, time:p.time};
+          }
+        });
+      }
+      refreshView();
+    }).catch(function(){refreshView()});
+  }
+  // OKX symbols via REST API (with fallback)
+  var okxSyms = SYMBOLS.filter(function(s){return s.broker==='OKX'}).map(function(s){return s.sym});
+  if (okxSyms.length > 0) {
+    fetch('https://www.okx.com/api/v5/market/tickers?instType=SPOT').then(function(r){return r.json()}).then(function(d){
+      if (d && d.data) {
+        d.data.forEach(function(t){
+          if (okxSyms.indexOf(t.instId) >= 0 && t.last) {
+            S.prices[t.instId] = {last:t.last, sodUtc8:t.open24h||t.last, vol24h:t.volCcy24h||'0'};
+          }
+        });
+      }
+      refreshView();
+    }).catch(function(){});
+  }
+}
+
+// ===== OKX WEBSOCKET for live crypto prices =====
+var _ws = null;
+function connectOKXWS() {
+  try {
+    if (_ws) { try{_ws.close()}catch(e){} }
+    _ws = new WebSocket('wss://ws.okx.com:8443/api/v5/public/ws');
+    _ws.onopen = function() {
+      var args = SYMBOLS.filter(function(s){return s.broker==='OKX'}).map(function(s){return{channel:'tickers',instId:s.sym}});
+      if (args.length > 0) _ws.send(JSON.stringify({op:'subscribe', args:args}));
+    };
+    _ws.onmessage = function(evt) {
+      try {
+        var msg = JSON.parse(evt.data);
+        if (msg.data) msg.data.forEach(function(t){
+          if (t.instId && t.last) {
+            S.prices[t.instId] = {last:t.last, sodUtc8:t.sodUtc8||t.open24h||t.last, vol24h:t.volCcy24h||'0', high24h:t.high24h, low24h:t.low24h};
+          }
+        });
+        refreshView();
+      } catch(e) {}
+    };
+    _ws.onclose = function(){setTimeout(connectOKXWS, 3000)};
+    _ws.onerror = function(){};
+  } catch(e) {}
 }
 
 function refreshView() {
@@ -293,7 +347,7 @@ function refreshView() {
 // ===== WATCHLIST =====
 var wlTab = 'all';
 function buildTabs() {
-  var tabs = [{id:'all',l:'All'},{id:'metals',l:'Metals'},{id:'energy',l:'Energy'},{id:'forex',l:'Forex'}];
+  var tabs = [{id:'all',l:'All'},{id:'metals',l:'Metals'},{id:'energy',l:'Energy'},{id:'forex',l:'Forex'},{id:'crypto',l:'Crypto'}];
   var h = '';
   tabs.forEach(function(t){h+='<div class="wl-tab'+(t.id===wlTab?' active':'')+'" onclick="setTab(\''+t.id+'\')">'+t.l+'</div>'});
   document.getElementById('wlTabs').innerHTML = h;
@@ -420,18 +474,39 @@ function loadData(sym, tf) {
   var mySeq = ++seqId;
   if (abortCtrl) abortCtrl.abort();
   abortCtrl = new AbortController();
-  // Always use Worker proxy for OANDA symbols
-  var url = PROXY + '/candles?symbol=' + sym + '&timeframe=' + tf + '&count=500';
-  fetch(url).then(function(r){return r.json()}).then(function(d){
-    if (mySeq !== seqId || !d || !d.candles || d.candles.length === 0) return;
-    candleSeries.setData(d.candles);
-    volumeSeries.setData(d.candles.map(function(c){
-      return {time:c.time, value:c.volume, color:c.close>=c.open?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'};
-    }));
-    S._lastCandles = d.candles;
-    updateChartHeader();
-    if (chart) { chart.priceScale().applyOptions({autoScale:true}); chart.timeScale().fitContent(); }
-  }).catch(function(){});
+  
+  var symObj = SYMBOLS.find(function(s){return s.sym===sym});
+  if (symObj && symObj.broker === 'OKX') {
+    // OKX crypto: use OKX API directly
+    fetch('https://www.okx.com/api/v5/market/candles?instId='+sym+'&bar='+tf+'&limit=300').then(function(r){return r.json()}).then(function(d){
+      if (mySeq !== seqId || !d || !d.data || d.data.length === 0) return;
+      var candles = d.data.reverse().map(function(c){
+        return {time:parseInt(c[0])/1000, open:parseFloat(c[1]), high:parseFloat(c[2]), low:parseFloat(c[3]), close:parseFloat(c[4]), volume:parseFloat(c[5])};
+      });
+      var seen = {};
+      candles = candles.filter(function(c){if(seen[c.time])return false;seen[c.time]=true;return true});
+      candleSeries.setData(candles);
+      volumeSeries.setData(candles.map(function(c){
+        return {time:c.time, value:c.volume, color:c.close>=c.open?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'};
+      }));
+      S._lastCandles = candles;
+      updateChartHeader();
+      if (chart) { chart.priceScale().applyOptions({autoScale:true}); chart.timeScale().fitContent(); }
+    }).catch(function(){});
+  } else {
+    // OANDA symbols: use Worker proxy
+    var url = PROXY + '/candles?symbol=' + sym + '&timeframe=' + tf + '&count=500';
+    fetch(url).then(function(r){return r.json()}).then(function(d){
+      if (mySeq !== seqId || !d || !d.candles || d.candles.length === 0) return;
+      candleSeries.setData(d.candles);
+      volumeSeries.setData(d.candles.map(function(c){
+        return {time:c.time, value:c.volume, color:c.close>=c.open?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'};
+      }));
+      S._lastCandles = d.candles;
+      updateChartHeader();
+      if (chart) { chart.priceScale().applyOptions({autoScale:true}); chart.timeScale().fitContent(); }
+    }).catch(function(){});
+  }
 }
 
 // ===== LOAD MORE HISTORY (infinite scroll) =====
@@ -442,28 +517,58 @@ function loadMoreHistory() {
   var mySeq = ++seqId;
   document.getElementById('loadMore').classList.add('show');
 
-  var url = PROXY + '/candles?symbol=' + S.cur.sym + '&timeframe=' + S.tf + '&count=500&before=' + (oldestTime - 1);
-  fetch(url).then(function(r){return r.json()}).then(function(d){
-    if (mySeq !== seqId || !d || !d.candles || d.candles.length === 0) {
+  var symObj = S.cur;
+  if (symObj.broker === 'OKX') {
+    // OKX history
+    fetch('https://www.okx.com/api/v5/market/history-candles?instId='+S.cur.sym+'&bar='+S.tf+'&limit=300&after='+(oldestTime*1000)).then(function(r){return r.json()}).then(function(d){
+      if (mySeq !== seqId || !d || !d.data || d.data.length === 0) {
+        S.loadingMore = false;
+        document.getElementById('loadMore').classList.remove('show');
+        return;
+      }
+      var newCandles = d.data.reverse().map(function(c){
+        return {time:parseInt(c[0])/1000, open:parseFloat(c[1]), high:parseFloat(c[2]), low:parseFloat(c[3]), close:parseFloat(c[4]), volume:parseFloat(c[5])};
+      }).filter(function(c){
+        var exists = S._lastCandles.some(function(e){return e.time===c.time});
+        return !exists && !isNaN(c.open);
+      });
+      if (newCandles.length > 0) {
+        S._lastCandles = newCandles.concat(S._lastCandles);
+        candleSeries.setData(S._lastCandles);
+        volumeSeries.setData(S._lastCandles.map(function(c){return{time:c.time,value:c.volume,color:c.close>=c.open?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'}}));
+        toast('Loaded ' + newCandles.length + ' more candles');
+      }
       S.loadingMore = false;
       document.getElementById('loadMore').classList.remove('show');
-      return;
-    }
-    var existingTimes = {};
-    S._lastCandles.forEach(function(c){existingTimes[c.time]=true});
-    var newCandles = d.candles.filter(function(c){return !existingTimes[c.time]});
-    if (newCandles.length > 0) {
-      S._lastCandles = newCandles.concat(S._lastCandles);
-      candleSeries.setData(S._lastCandles.map(function(c){return{time:c.time,open:c.open,high:c.high,low:c.low,close:c.close}}));
-      volumeSeries.setData(S._lastCandles.map(function(c){return{time:c.time,value:c.volume,color:c.close>=c.open?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'}}));
-      toast('Loaded ' + newCandles.length + ' more candles');
-    }
-    S.loadingMore = false;
-    document.getElementById('loadMore').classList.remove('show');
-  }).catch(function(){
-    S.loadingMore = false;
-    document.getElementById('loadMore').classList.remove('show');
-  });
+    }).catch(function(){
+      S.loadingMore = false;
+      document.getElementById('loadMore').classList.remove('show');
+    });
+  } else {
+    // OANDA history via Worker proxy
+    var url = PROXY + '/candles?symbol=' + S.cur.sym + '&timeframe=' + S.tf + '&count=500&before=' + (oldestTime - 1);
+    fetch(url).then(function(r){return r.json()}).then(function(d){
+      if (mySeq !== seqId || !d || !d.candles || d.candles.length === 0) {
+        S.loadingMore = false;
+        document.getElementById('loadMore').classList.remove('show');
+        return;
+      }
+      var existingTimes = {};
+      S._lastCandles.forEach(function(c){existingTimes[c.time]=true});
+      var newCandles = d.candles.filter(function(c){return !existingTimes[c.time]});
+      if (newCandles.length > 0) {
+        S._lastCandles = newCandles.concat(S._lastCandles);
+        candleSeries.setData(S._lastCandles.map(function(c){return{time:c.time,open:c.open,high:c.high,low:c.low,close:c.close}}));
+        volumeSeries.setData(S._lastCandles.map(function(c){return{time:c.time,value:c.volume,color:c.close>=c.open?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'}}));
+        toast('Loaded ' + newCandles.length + ' more candles');
+      }
+      S.loadingMore = false;
+      document.getElementById('loadMore').classList.remove('show');
+    }).catch(function(){
+      S.loadingMore = false;
+      document.getElementById('loadMore').classList.remove('show');
+    });
+  }
 }
 
 function updateChartHeader() {
@@ -591,6 +696,7 @@ function init() {
   buildTabs(); buildAssetList(); buildTFBar(); buildIndBar(); buildDrawBar();
   renderAlerts();
   fetchAllPrices();
+  connectOKXWS();
   pollTimer = setInterval(fetchAllPrices, 5000);
   setInterval(function(){if(S.page==='chart'&&S.cur)updateChartHeader()}, 3000);
   document.getElementById('hdrSymBtn').addEventListener('click', openSymModal);
