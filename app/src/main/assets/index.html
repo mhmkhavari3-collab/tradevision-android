@@ -7,7 +7,7 @@
 <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;outline:none}
-html,body{position:fixed;width:100%;height:100%;overflow:hidden;overscroll-behavior:none;-webkit-overflow-scrolling:touch;background:#0a0e14;color:#c5c8c9;font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{position:fixed;width:100%;height:100%;overflow:hidden;overscroll-behavior:none;background:#0a0e14;color:#c5c8c9;font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-tap-highlight-color:transparent;user-select:none}
 .hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#131722;border-bottom:1px solid #1e222d}
 .hdr-title{font-size:14px;font-weight:700;color:#d1d4dc}
 .hdr-sym{font-size:13px;color:#787b86;cursor:pointer}
@@ -15,11 +15,9 @@ html,body{position:fixed;width:100%;height:100%;overflow:hidden;overscroll-behav
 .nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#131722;border-top:1px solid #1e222d;z-index:100}
 .nav-btn{flex:1;text-align:center;padding:8px 0;font-size:10px;color:#787b86;cursor:pointer}
 .nav-btn.on{color:#2196f3}
-.nav-btn svg{display:block;margin:0 auto 2px;width:20px;height:20px}
 .pg{display:none;position:absolute;top:0;left:0;right:0;bottom:48px;overflow:hidden}
 .pg.on{display:block}
-/* Watchlist */
-.wl{overflow-y:auto;height:100%;-webkit-overflow-scrolling:touch}
+.wl{overflow-y:auto;height:100%}
 .wl-row{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #1e222d;cursor:pointer}
 .wl-row:active{background:#1e222d}
 .wl-sym{width:60px;font-size:14px;font-weight:600;color:#d1d4dc}
@@ -27,7 +25,6 @@ html,body{position:fixed;width:100%;height:100%;overflow:hidden;overscroll-behav
 .wl-price{width:80px;text-align:right;font-size:14px;font-weight:600}
 .wl-chg{width:70px;text-align:right;font-size:12px}
 .up{color:#26a69a}.dn{color:#ef5350}
-/* Chart */
 .ch-wrap{display:flex;flex-direction:column;height:100%}
 .ch-bar{display:flex;align-items:center;justify-content:space-between;padding:4px 10px;background:#131722;border-bottom:1px solid #1e222d;flex-shrink:0}
 .ch-sym{font-size:14px;font-weight:600;color:#d1d4dc}
@@ -51,34 +48,23 @@ html,body{position:fixed;width:100%;height:100%;overflow:hidden;overscroll-behav
 .load-ind.on{display:flex;align-items:center;gap:6px}
 .spin{width:12px;height:12px;border:2px solid #1e222d;border-top-color:#2196f3;border-radius:50%;animation:sp .7s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
-/* Alerts/Settings placeholder */
 .placeholder{display:flex;align-items:center;justify-content:center;height:100%;color:#787b86;font-size:14px;text-align:center;padding:40px}
-/* Toast */
 .toast{position:fixed;top:40px;left:50%;transform:translateX(-50%);padding:8px 16px;border-radius:6px;font-size:12px;z-index:999;display:none}
 .toast.on{display:block;background:#26a69a;color:#000}
 </style>
 </head>
 <body>
-<!-- Header -->
 <div class="hdr">
   <div class="hdr-title">TradeVision</div>
   <div class="hdr-sym" id="hdrSym">XAU/USD</div>
   <div class="hdr-price" id="hdrPrice" style="color:#787b86">—</div>
 </div>
-
-<!-- Pages -->
 <div id="pgWL" class="pg on"><div class="wl" id="wlList"></div></div>
 <div id="pgCH" class="pg">
   <div class="ch-wrap">
     <div class="ch-bar">
-      <div>
-        <span class="ch-sym" id="chSym">XAU/USD</span>
-        <span class="ch-live" id="chLive" style="display:none">LIVE</span>
-      </div>
-      <div style="text-align:right">
-        <div class="ch-price" id="chPrice">—</div>
-        <div class="ch-chg" id="chChg">—</div>
-      </div>
+      <div><span class="ch-sym" id="chSym">XAU/USD</span> <span class="ch-live" id="chLive" style="display:none">LIVE</span></div>
+      <div style="text-align:right"><div class="ch-price" id="chPrice">—</div><div class="ch-chg" id="chChg">—</div></div>
     </div>
     <div class="ohlc" id="ohlc">O — H — L — C</div>
     <div class="tf-bar" id="tfBar"></div>
@@ -89,25 +75,17 @@ html,body{position:fixed;width:100%;height:100%;overflow:hidden;overscroll-behav
   </div>
 </div>
 <div id="pgAL" class="pg"><div class="placeholder">🔔 Alerts<br>Coming soon</div></div>
-<div id="pgST" class="pg"><div class="placeholder">⚙️ Settings<br>v6.0 · Functionality First</div></div>
-
-<!-- Nav -->
+<div id="pgST" class="pg"><div class="placeholder">⚙️ Settings<br>v7.0 · WebSocket Live</div></div>
 <div class="nav">
-  <div class="nav-btn on" onclick="showPg('WL')"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 4h18v2H3V4zm0 7h18v2H3v-2zm0 7h18v2H3v-2z"/></svg>Watchlist</div>
-  <div class="nav-btn" onclick="showPg('CH')"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h2v8H3v-8zm4-4h2v12H7V9zm4-4h2v16h-2V5zm4 8h2v8h-2v-8zm4-2h2v10h-2V11z"/></svg>Chart</div>
-  <div class="nav-btn" onclick="showPg('AL')"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4a2 2 0 002 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>Alerts</div>
-  <div class="nav-btn" onclick="showPg('ST')"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.6 3.6 0 0112 15.6z"/></svg>Settings</div>
+  <div class="nav-btn on" onclick="showPg('WL')">📋 Watchlist</div>
+  <div class="nav-btn" onclick="showPg('CH')">📈 Chart</div>
+  <div class="nav-btn" onclick="showPg('AL')">🔔 Alerts</div>
+  <div class="nav-btn" onclick="showPg('ST')">⚙️ Settings</div>
 </div>
-
 <div class="toast" id="toast"></div>
-
 <script>
-// ============================================================
-// CONFIG
-// ============================================================
-var PROXY = 'https://tradevision-oanda-proxy.vlmprofileo.workers.dev';
-
-var SYMBOLS = [
+var PROXY='https://market-stream.mamali163345.workers.dev';
+var SYMBOLS=[
   {sym:'XAUUSD',name:'Gold',display:'XAU/USD',color:'#f0b90b',cat:'metals',prec:2,minMove:0.01},
   {sym:'XAGUSD',name:'Silver',display:'XAG/USD',color:'#c0c0c0',cat:'metals',prec:3,minMove:0.001},
   {sym:'WTI',name:'WTI Oil',display:'WTI/USD',color:'#8B4513',cat:'energy',prec:3,minMove:0.001},
@@ -125,467 +103,105 @@ var SYMBOLS = [
   {sym:'BTC-USDT',name:'Bitcoin',display:'BTC/USDT',color:'#f7931a',cat:'crypto',prec:2,minMove:0.01},
   {sym:'ETH-USDT',name:'Ethereum',display:'ETH/USDT',color:'#627eea',cat:'crypto',prec:2,minMove:0.01},
   {sym:'SOL-USDT',name:'Solana',display:'SOL/USDT',color:'#9945ff',cat:'crypto',prec:2,minMove:0.01},
-  {sym:'XRP-USDT',name:'Ripple',display:'XRP/USDT',color:'#23292f',cat:'crypto',prec:4,minMove:0.0001},
 ];
-
-var TIMEFRAMES = [
-  {id:'1m',label:'1m'},{id:'5m',label:'5m'},{id:'15m',label:'15m'},
-  {id:'1H',label:'1H'},{id:'4H',label:'4H'},{id:'1D',label:'1D'}
-];
-
-// ============================================================
-// STATE
-// ============================================================
-var cur = SYMBOLS[0];   // current symbol
-var tf = '15m';          // current timeframe
-var prices = {};         // {sym: {bid, ask, mid, last, open, time}}
-var candles = [];        // current chart candles array
-var page = 'WL';
-var chart = null, candleSeries = null, volumeSeries = null;
-var seqId = 0;
-var wsConn = null;       // WebSocket connection (for future use)
-var loadingMore = false;
-
-// ============================================================
-// HELPERS
-// ============================================================
-function fmtPrice(v, prec) {
-  if (v == null || isNaN(v)) return '—';
-  return Number(v).toFixed(prec != null ? prec : 2);
-}
-function fmtPct(v) { return v >= 0 ? '+' + v.toFixed(2) + '%' : v.toFixed(2) + '%'; }
-function toast(m) {
-  var el = document.getElementById('toast');
-  el.textContent = m; el.className = 'toast on';
-  setTimeout(function() { el.className = 'toast'; }, 2000);
-}
-
-// ============================================================
-// PAGE NAVIGATION
-// ============================================================
-function showPg(name) {
-  page = name;
-  document.querySelectorAll('.pg').forEach(function(p) { p.className = 'pg'; });
-  document.getElementById('pg' + name).className = 'pg on';
-  document.querySelectorAll('.nav-btn').forEach(function(b) { b.className = 'nav-btn'; });
-  document.querySelectorAll('.nav-btn')[['WL','CH','AL','ST'].indexOf(name)].className = 'nav-btn on';
-
-  if (name === 'CH') {
-    setTimeout(function() {
-      initChart();
-      loadCandles(cur.sym, tf);
-      startChartPolling();
-    }, 50);
-  } else {
-    stopChartPolling();
-  }
-}
-
-// ============================================================
+var TIMEFRAMES=[{id:'1m',l:'1m'},{id:'5m',l:'5m'},{id:'15m',l:'15m'},{id:'1H',l:'1H'},{id:'4H',l:'4H'},{id:'1D',l:'1D'}];
+var cur=SYMBOLS[0],tf='15m',prices={},candles=[],page='WL';
+var chart=null,candleSeries=null,volumeSeries=null,seqId=0,loadingMore=false;
+var wsConn=null,wsReconnectTimer=null;
+function fp(v,p){return v!=null?Number(v).toFixed(p!=null?p:2):'—'}
+function pct(v){return v>=0?'+'+v.toFixed(2)+'%':v.toFixed(2)+'%'}
+function toast(m){var e=document.getElementById('toast');e.textContent=m;e.className='toast on';setTimeout(function(){e.className='toast'},2000)}
+function showPg(n){page=n;document.querySelectorAll('.pg').forEach(function(p){p.className='pg'});document.getElementById('pg'+n).className='pg on';document.querySelectorAll('.nav-btn').forEach(function(b,i){b.className=['WL','CH','AL','ST'].indexOf(n)===i?'nav-btn on':'nav-btn'});if(n==='CH'){setTimeout(function(){initChart();loadCandles(cur.sym,tf);connectWS(cur.sym)},50)}else{disconnectWS()}}
 // WATCHLIST
-// ============================================================
-function buildWL() {
-  var h = '';
-  for (var i = 0; i < SYMBOLS.length; i++) {
-    var s = SYMBOLS[i];
-    var p = prices[s.sym] || {};
-    var last = p.mid != null ? Number(p.mid) : 0;
-    var open = p.open != null ? Number(p.open) : 0;
-    var chg = open > 0 ? ((last - open) / open * 100) : 0;
-    var cls = chg > 0 ? 'up' : chg < 0 ? 'dn' : '';
-    h += '<div class="wl-row" onclick="goChart(\'' + s.sym + '\')">' +
-      '<div class="wl-sym">' + s.display + '</div>' +
-      '<div class="wl-name">' + s.name + '</div>' +
-      '<div class="wl-price ' + cls + '">' + (last ? fmtPrice(last, s.prec) : '—') + '</div>' +
-      '<div class="wl-chg ' + cls + '">' + (last ? fmtPct(chg) : '') + '</div>' +
-      '</div>';
+function buildWL(){var h='';SYMBOLS.forEach(function(s){var p=prices[s.sym]||{};var last=p.mid!=null?Number(p.mid):0;var open=p.open!=null?Number(p.open):0;var chg=open>0?((last-open)/open*100):0;var c=chg>0?'up':chg<0?'dn':'';h+='<div class="wl-row" onclick="goChart(\''+s.sym+'\')"><div class="wl-sym">'+s.display+'</div><div class="wl-name">'+s.name+'</div><div class="wl-price '+c+'">'+(last?fp(last,s.prec):'—')+'</div><div class="wl-chg '+c+'">'+(last?pct(chg):'')+'</div></div>'});document.getElementById('wlList').innerHTML=h}
+function goChart(sym){var s=SYMBOLS.find(function(x){return x.sym===sym});if(!s)return;cur=s;document.getElementById('hdrSym').textContent=s.display;showPg('CH')}
+function fetchPrices(){var oSyms=SYMBOLS.filter(function(s){return s.cat!=='crypto'}).map(function(s){return s.sym});if(oSyms.length)fetch(PROXY+'/price?symbols='+oSyms.join(',')).then(function(r){return r.json()}).then(function(d){if(!d.prices)return;d.prices.forEach(function(p){if(p.mid!=null){var old=prices[p.symbol]||{};prices[p.symbol]={mid:p.mid,bid:p.bid,ask:p.ask,open:p.open||old.open,time:p.time}});if(page==='WL')buildWL();if(page==='CH')updateChHeader()}).catch(function(){})}
+// WEBSOCKET — LIVE TICKS
+function connectWS(sym){
+  disconnectWS();
+  if(!sym||cur.cat==='crypto')return;
+  var url=PROXY.replace('https://','wss://')+'/stream?symbol='+sym;
+  try{
+    wsConn=new WebSocket(url);
+    wsConn.onopen=function(){document.getElementById('chLive').style.display='';console.log('[WS CONNECTED]',sym)};
+    wsConn.onmessage=function(e){
+      try{
+        var d=JSON.parse(e.data);
+        if(d.type==='tick'){
+          console.log('[TICK]',d.symbol,d.mid.toFixed(cur.prec));
+          prices[d.symbol]={mid:d.mid,bid:d.bid,ask:d.ask,time:d.time};
+          updateLiveCandle(d.mid);
+          updateChHeader();
+        }
+      }catch(x){}
+    };
+    wsConn.onclose=function(){document.getElementById('chLive').style.display='none';console.log('[WS CLOSED] reconnecting...');wsReconnectTimer=setTimeout(function(){if(page==='CH')connectWS(sym)},3000)};
+    wsConn.onerror=function(){};
+  }catch(e){}
+}
+function disconnectWS(){if(wsConn){try{wsConn.close()}catch(e){}wsConn=null}if(wsReconnectTimer){clearTimeout(wsReconnectTimer);wsReconnectTimer=null}document.getElementById('chLive').style.display='none'}
+// LIVE CANDLE UPDATE
+function updateLiveCandle(price){
+  if(!candleSeries||!candles.length||price<=0)return;
+  var last=candles[candles.length-1];
+  var now=Math.floor(Date.now()/1000);
+  var tfSecs={'1m':60,'5m':300,'15m':900,'1H':3600,'4H':14400,'1D':86400};
+  var secs=tfSecs[tf]||900;
+  var curStart=Math.floor(now/secs)*secs;
+  if(curStart>last.time){
+    var nc={time:curStart,open:last.close,high:price,low:price,close:price,volume:0};
+    candles.push(nc);
+    candleSeries.update(nc);
+    volumeSeries.update({time:curStart,value:0,color:'rgba(38,166,154,.3)'});
+  }else{
+    if(price>last.high)last.high=price;
+    if(price<last.low)last.low=price;
+    last.close=price;
+    candleSeries.update({time:last.time,open:last.open,high:last.high,low:last.low,close:last.close});
   }
-  document.getElementById('wlList').innerHTML = h;
-}
-
-function goChart(symName) {
-  var s = SYMBOLS.find(function(x) { return x.sym === symName; });
-  if (!s) return;
-  cur = s;
-  document.getElementById('hdrSym').textContent = s.display;
-  showPg('CH');
-}
-
-// ============================================================
-// PRICE FETCHING
-// ============================================================
-function fetchPrices() {
-  // OANDA symbols
-  var oSyms = SYMBOLS.filter(function(s) { return s.cat !== 'crypto'; }).map(function(s) { return s.sym; });
-  if (oSyms.length > 0) {
-    fetch(PROXY + '/price?symbols=' + oSyms.join(','))
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (!d.prices) return;
-        d.prices.forEach(function(p) {
-          if (p.mid != null) {
-            var old = prices[p.symbol] || {};
-            prices[p.symbol] = {
-              bid: p.bid, ask: p.ask, mid: p.mid,
-              last: p.mid,
-              open: p.open || old.open,
-              time: p.time
-            };
-          }
-        });
-        renderPrices();
-      })
-      .catch(function() {});
-  }
-
-  // OKX symbols
-  var kSyms = SYMBOLS.filter(function(s) { return s.cat === 'crypto'; });
-  if (kSyms.length > 0) {
-    fetch('https://www.okx.com/api/v5/market/tickers?instType=SPOT')
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (!d || !d.data) return;
-        var kIds = kSyms.map(function(s) { return s.sym; });
-        d.data.forEach(function(t) {
-          if (kIds.indexOf(t.instId) >= 0 && t.last) {
-            var old = prices[t.instId] || {};
-            prices[t.instId] = {
-              mid: t.last, last: t.last,
-              open: t.open24h || old.open,
-              time: new Date().toISOString()
-            };
-          }
-        });
-        renderPrices();
-      })
-      .catch(function() {});
-  }
-}
-
-function renderPrices() {
-  if (page === 'WL') buildWL();
-  if (page === 'CH') updateChHeader();
-}
-
-// ============================================================
-// CHART ENGINE
-// ============================================================
-var chartPoll = null;
-
-function initChart() {
-  if (chart) return;
-  var el = document.getElementById('chartEl');
-
-  chart = LightweightCharts.createChart(el, {
-    width: el.clientWidth,
-    height: el.clientHeight || 400,
-    layout: { background: { color: '#0a0e14' }, textColor: '#787b86', fontSize: 11 },
-    grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
-    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-    timeScale: {
-      timeVisible: true, secondsVisible: false,
-      rightOffset: 5, barSpacing: 6,
-      fixLeftEdge: false, fixRightEdge: false,
-      shiftVisibleRangeOnNewBar: false
-    },
-    rightPriceScale: { borderVisible: false, autoScale: true },
-    handleScroll: { vertTouchDrag: false, horzTouchDrag: true, mouseWheel: true, pressedMouseMove: true, horzDrag: true },
-    handleScale: { axisPressedMouseMove: { time: true, price: true }, mouseWheel: true, pinch: true, resetDoubleTap: true }
-  });
-
-  candleSeries = chart.addCandlestickSeries({
-    upColor: '#26a69a', downColor: '#ef5350',
-    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-    wickUpColor: '#26a69a', wickDownColor: '#ef5350'
-  });
-
-  volumeSeries = chart.addHistogramSeries({
-    color: '#26a69a',
-    priceFormat: { type: 'volume' },
-    priceScaleId: 'vol'
-  });
-  chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
-
-  // Crosshair OHLC display
-  chart.subscribeCrosshairMove(function(p) {
-    if (!p || !p.time || !p.seriesData) return;
-    var cv = p.seriesData.get(candleSeries);
-    if (!cv) return;
-    var pr = cur.prec;
-    document.getElementById('ohlc').innerHTML =
-      '<b>O</b> ' + fmtPrice(cv.open, pr) +
-      ' <b>H</b> <span class="up">' + fmtPrice(cv.high, pr) + '</span>' +
-      ' <b>L</b> <span class="dn">' + fmtPrice(cv.low, pr) + '</span>' +
-      ' <b>C</b> ' + fmtPrice(cv.close, pr);
-  });
-
-  // INFINITE SCROLL: load more when near left edge
-  chart.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
-    if (!range || !candles || candles.length < 2) return;
-    if (range.from <= 10) loadMoreHistory();
-  });
-
-  // Resize handler
-  var rt = null;
-  new ResizeObserver(function() {
-    if (rt) clearTimeout(rt);
-    rt = setTimeout(function() {
-      if (chart && el) chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
-    }, 100);
-  }).observe(el);
-
-  applyPrecision();
-}
-
-function applyPrecision() {
-  if (candleSeries && cur) {
-    candleSeries.applyOptions({
-      priceFormat: { type: 'price', precision: cur.prec, minMove: cur.minMove }
-    });
-  }
-}
-
-// ============================================================
-// LOAD CANDLES
-// ============================================================
-function loadCandles(sym, timeframe) {
-  var mySeq = ++seqId;
-  candles = [];
-
-  // OANDA
-  var symObj = SYMBOLS.find(function(s) { return s.sym === sym; });
-  var isCrypto = symObj && symObj.cat === 'crypto';
-
-  if (isCrypto) {
-    fetch('https://www.okx.com/api/v5/market/candles?instId=' + sym + '&bar=' + timeframe + '&limit=300')
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (mySeq !== seqId || !d || !d.data) return;
-        candles = d.data.reverse().map(function(c) {
-          return { time: parseInt(c[0]) / 1000, open: parseFloat(c[1]), high: parseFloat(c[2]), low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]) };
-        }).filter(function(c, i, arr) { return i === 0 || arr[i-1].time !== c.time; });
-        setChartData();
-      })
-      .catch(function() {});
-  } else {
-    fetch(PROXY + '/candles?symbol=' + sym + '&timeframe=' + timeframe + '&count=500')
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (mySeq !== seqId || !d || !d.candles) return;
-        candles = d.candles;
-        setChartData();
-        if (symObj) applyPrecision();
-      })
-      .catch(function() {});
-  }
-}
-
-function setChartData() {
-  if (!candleSeries || !candles || candles.length === 0) return;
-  candleSeries.setData(candles);
-  volumeSeries.setData(candles.map(function(c) {
-    return { time: c.time, value: c.volume || 0, color: c.close >= c.open ? 'rgba(38,166,154,.3)' : 'rgba(239,83,80,.3)' };
-  }));
-  chart.timeScale().fitContent();
   updateChHeader();
 }
-
-// ============================================================
-// INFINITE SCROLL — LOAD MORE HISTORY
-// ============================================================
-function loadMoreHistory() {
-  if (!cur || loadingMore || !candles || candles.length === 0) return;
-  loadingMore = true;
-  var oldestTime = candles[0].time;
-  var mySeq = ++seqId;
-  document.getElementById('loadInd').className = 'load-ind on';
-
-  var isCrypto = cur.cat === 'crypto';
-
-  if (isCrypto) {
-    fetch('https://www.okx.com/api/v5/market/history-candles?instId=' + cur.sym + '&bar=' + tf + '&limit=100&after=' + (oldestTime * 1000))
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (mySeq !== seqId || !d || !d.data || d.data.length === 0) {
-          loadingMore = false;
-          document.getElementById('loadInd').className = 'load-ind';
-          return;
-        }
-        var newC = d.data.reverse().map(function(c) {
-          return { time: parseInt(c[0]) / 1000, open: parseFloat(c[1]), high: parseFloat(c[2]), low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]) };
-        }).filter(function(c) {
-          return !candles.some(function(e) { return e.time === c.time; }) && !isNaN(c.open);
-        });
-        if (newC.length > 0) {
-          candles = newC.concat(candles);
-          setChartData();
-          toast('+' + newC.length + ' candles');
-        }
-        loadingMore = false;
-        document.getElementById('loadInd').className = 'load-ind';
-      })
-      .catch(function() { loadingMore = false; document.getElementById('loadInd').className = 'load-ind'; });
-  } else {
-    fetch(PROXY + '/candles?symbol=' + cur.sym + '&timeframe=' + tf + '&count=500&before=' + (oldestTime - 1))
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        if (mySeq !== seqId || !d || !d.candles || d.candles.length === 0) {
-          loadingMore = false;
-          document.getElementById('loadInd').className = 'load-ind';
-          return;
-        }
-        var exist = {};
-        candles.forEach(function(c) { exist[c.time] = true; });
-        var newC = d.candles.filter(function(c) { return !exist[c.time]; });
-        if (newC.length > 0) {
-          candles = newC.concat(candles);
-          setChartData();
-          toast('+' + newC.length + ' candles');
-        }
-        loadingMore = false;
-        document.getElementById('loadInd').className = 'load-ind';
-      })
-      .catch(function() { loadingMore = false; document.getElementById('loadInd').className = 'load-ind'; });
+// CHART
+function initChart(){
+  if(chart)return;
+  var el=document.getElementById('chartEl');
+  chart=LightweightCharts.createChart(el,{width:el.clientWidth,height:el.clientHeight||400,layout:{background:{color:'#0a0e14'},textColor:'#787b86',fontSize:11},grid:{vertLines:{color:'#1e222d'},horzLines:{color:'#1e222d'}},crosshair:{mode:LightweightCharts.CrosshairMode.Normal},timeScale:{timeVisible:true,secondsVisible:false,rightOffset:5,barSpacing:6,fixLeftEdge:false,fixRightEdge:false,shiftVisibleRangeOnNewBar:false},rightPriceScale:{borderVisible:false,autoScale:true},handleScroll:{vertTouchDrag:false,horzTouchDrag:true,mouseWheel:true,pressedMouseMove:true,horzDrag:true},handleScale:{axisPressedMouseMove:{time:true,price:true},mouseWheel:true,pinch:true,resetDoubleTap:true}});
+  candleSeries=chart.addCandlestickSeries({upColor:'#26a69a',downColor:'#ef5350',borderUpColor:'#26a69a',borderDownColor:'#ef5350',wickUpColor:'#26a69a',wickDownColor:'#ef5350'});
+  volumeSeries=chart.addHistogramSeries({color:'#26a69a',priceFormat:{type:'volume'},priceScaleId:'vol'});
+  chart.priceScale('vol').applyOptions({scaleMargins:{top:.85,bottom:0}});
+  chart.subscribeCrosshairMove(function(p){if(!p||!p.time||!p.seriesData)return;var cv=p.seriesData.get(candleSeries);if(!cv)return;var pr=cur.prec;document.getElementById('ohlc').innerHTML='<b>O</b> '+fp(cv.open,pr)+' <b>H</b> <span class="up">'+fp(cv.high,pr)+'</span> <b>L</b> <span class="dn">'+fp(cv.low,pr)+'</span> <b>C</b> '+fp(cv.close,pr)});
+  chart.timeScale().subscribeVisibleLogicalRangeChange(function(r){if(!r||!candles||candles.length<2)return;if(r.from<=10)loadMoreHistory()});
+  var rt=null;new ResizeObserver(function(){if(rt)clearTimeout(rt);rt=setTimeout(function(){if(chart&&el)chart.applyOptions({width:el.clientWidth,height:el.clientHeight})},100)}).observe(el);
+  applyPrecision();
+}
+function applyPrecision(){if(candleSeries&&cur)candleSeries.applyOptions({priceFormat:{type:'price',precision:cur.prec,minMove:cur.minMove}})}
+function loadCandles(sym,tf){
+  var mySeq=++seqId;candles=[];
+  var symObj=SYMBOLS.find(function(s){return s.sym===sym});
+  var isCrypto=symObj&&symObj.cat==='crypto';
+  if(isCrypto){
+    fetch('https://www.okx.com/api/v5/market/candles?instId='+sym+'&bar='+tf+'&limit=300').then(function(r){return r.json()}).then(function(d){if(mySeq!==seqId||!d||!d.data)return;candles=d.data.reverse().map(function(c){return{time:parseInt(c[0])/1000,open:parseFloat(c[1]),high:parseFloat(c[2]),low:parseFloat(c[3]),close:parseFloat(c[4]),volume:parseFloat(c[5])}}).filter(function(c,i,a){return i===0||a[i-1].time!==c.time});setChartData()}).catch(function(){});
+  }else{
+    fetch(PROXY+'/candles?symbol='+sym+'&timeframe='+tf+'&count=500').then(function(r){return r.json()}).then(function(d){if(mySeq!==seqId||!d||!d.candles)return;candles=d.candles;setChartData();if(symObj)applyPrecision()}).catch(function(){});
   }
 }
-
-// ============================================================
-// LIVE CANDLE UPDATE (Fast Polling —1s)
-// ============================================================
-var chartPollTimer = null;
-
-function startChartPolling() {
-  stopChartPolling();
-  // Update candle every 1 second
-  chartPollTimer = setInterval(function() {
-    if (page !== 'CH' || !candleSeries || !candles || candles.length === 0) return;
-    var p = prices[cur.sym];
-    if (!p || !p.mid) return;
-
-    var price = Number(p.mid);
-    if (price <= 0) return;
-
-    var last = candles[candles.length - 1];
-    var now = Math.floor(Date.now() / 1000);
-
-    // Calculate candle start time based on timeframe
-    var tfSecs = { '1m': 60, '5m': 300, '15m': 900, '1H': 3600, '4H': 14400, '1D': 86400 };
-    var secs = tfSecs[tf] || 900;
-    var curStart = Math.floor(now / secs) * secs;
-
-    if (curStart > last.time) {
-      // New candle period — create new candle
-      var nc = { time: curStart, open: last.close, high: price, low: price, close: price, volume: 0 };
-      candles.push(nc);
-      candleSeries.update(nc);
-      volumeSeries.update({ time: curStart, value: 0, color: 'rgba(38,166,154,.3)' });
-    } else {
-      // Same candle — update high/low/close
-      if (price > last.high) last.high = price;
-      if (price < last.low) last.low = price;
-      last.close = price;
-      candleSeries.update({ time: last.time, open: last.open, high: last.high, low: last.low, close: last.close });
-    }
-    updateChHeader();
-  }, 1000);  // 1 second polling
+function setChartData(){if(!candleSeries||!candles.length)return;candleSeries.setData(candles);volumeSeries.setData(candles.map(function(c){return{time:c.time,value:c.volume||0,color:c.close>=c.open?'rgba(38,166,154,.3)':'rgba(239,83,80,.3)'}}));chart.timeScale().fitContent();updateChHeader()}
+function loadMoreHistory(){
+  if(!cur||loadingMore||!candles.length)return;loadingMore=true;
+  var oldest=candles[0].time,mySeq=++seqId;
+  document.getElementById('loadInd').className='load-ind on';
+  var isCrypto=cur.cat==='crypto';
+  if(isCrypto){
+    fetch('https://www.okx.com/api/v5/market/history-candles?instId='+cur.sym+'&bar='+tf+'&limit=100&after='+(oldest*1000)).then(function(r){return r.json()}).then(function(d){if(mySeq!==seqId||!d||!d.data||!d.data.length){loadingMore=false;document.getElementById('loadInd').className='load-ind';return}var nc=d.data.reverse().map(function(c){return{time:parseInt(c[0])/1000,open:parseFloat(c[1]),high:parseFloat(c[2]),low:parseFloat(c[3]),close:parseFloat(c[4]),volume:parseFloat(c[5])}}).filter(function(c){return!candles.some(function(e){return e.time===c.time})&&!isNaN(c.open)});if(nc.length){candles=nc.concat(candles);setChartData();toast('+'+nc.length+' candles')}loadingMore=false;document.getElementById('loadInd').className='load-ind'}).catch(function(){loadingMore=false;document.getElementById('loadInd').className='load-ind'});
+  }else{
+    fetch(PROXY+'/candles?symbol='+cur.sym+'&timeframe='+tf+'&count=500&before='+(oldest-1)).then(function(r){return r.json()}).then(function(d){if(mySeq!==seqId||!d||!d.candles||!d.candles.length){loadingMore=false;document.getElementById('loadInd').className='load-ind';return}var exist={};candles.forEach(function(c){exist[c.time]=true});var nc=d.candles.filter(function(c){return!exist[c.time]});if(nc.length){candles=nc.concat(candles);setChartData();toast('+'+nc.length+' candles')}loadingMore=false;document.getElementById('loadInd').className='load-ind'}).catch(function(){loadingMore=false;document.getElementById('loadInd').className='load-ind'});
+  }
 }
-
-function stopChartPolling() {
-  if (chartPollTimer) { clearInterval(chartPollTimer); chartPollTimer = null; }
-}
-
-// ============================================================
-// CHART HEADER
-// ============================================================
-function updateChHeader() {
-  var p = prices[cur.sym];
-  if (!p || !p.mid) return;
-  var last = Number(p.mid);
-  var open = Number(p.open || 0);
-  var chg = open > 0 ? ((last - open) / open * 100) : 0;
-  var cls = chg >= 0 ? 'up' : 'dn';
-
-  document.getElementById('chPrice').textContent = fmtPrice(last, cur.prec);
-  document.getElementById('chPrice').className = 'ch-price ' + cls;
-
-  var chgEl = document.getElementById('chChg');
-  chgEl.textContent = fmtPct(chg);
-  chgEl.className = 'ch-chg ' + cls;
-
-  document.getElementById('hdrPrice').textContent = fmtPrice(last, cur.prec);
-  document.getElementById('hdrPrice').style.color = chg >= 0 ? '#26a69a' : '#ef5350';
-}
-
-// ============================================================
-// TIMEFRAME BAR
-// ============================================================
-function buildTFBar() {
-  var h = '';
-  TIMEFRAMES.forEach(function(t) {
-    h += '<div class="tf-btn' + (t.id === tf ? ' on' : '') + '" onclick="setTF(\'' + t.id + '\')">' + t.label + '</div>';
-  });
-  document.getElementById('tfBar').innerHTML = h;
-}
-
-function setTF(newTf) {
-  tf = newTf;
-  buildTFBar();
-  loadCandles(cur.sym, tf);
-}
-
-// ============================================================
-// WEBSOCKET (Ready for future deploy)
-// ============================================================
-// When Worker v4 is deployed with /stream endpoint, enable this:
-//
-// function connectWS() {
-//   if (wsConn) { try { wsConn.close(); } catch(e) {} }
-//   var url = PROXY.replace('https://', 'wss://') + '/stream?symbol=' + cur.sym;
-//   wsConn = new WebSocket(url);
-//   wsConn.onopen = function() { console.log('[WS CONNECTED]'); document.getElementById('chLive').style.display = ''; };
-//   wsConn.onmessage = function(e) {
-//     try {
-//       var tick = JSON.parse(e.data);
-//       if (tick.type === 'tick') {
-//         console.log('[PRICE TICK]', tick.symbol, tick.mid);
-//         prices[tick.symbol] = { mid: tick.mid, last: tick.mid, bid: tick.bid, ask: tick.ask };
-//         updateLiveCandle(tick.mid);
-//       }
-//     } catch(x) {}
-//   };
-//   wsConn.onclose = function() { document.getElementById('chLive').style.display = 'none'; setTimeout(connectWS, 3000); };
-//   wsConn.onerror = function() {};
-// }
-//
-// function updateLiveCandle(price) {
-//   if (!candleSeries || !candles || candles.length === 0) return;
-//   var last = candles[candles.length - 1];
-//   var now = Math.floor(Date.now() / 1000);
-//   var tfSecs = { '1m':60, '5m':300, '15m':900, '1H':3600, '4H':14400, '1D':86400 };
-//   var secs = tfSecs[tf] || 900;
-//   var curStart = Math.floor(now / secs) * secs;
-//   if (curStart > last.time) {
-//     var nc = { time: curStart, open: last.close, high: price, low: price, close: price, volume: 0 };
-//     candles.push(nc); candleSeries.update(nc);
-//   } else {
-//     if (price > last.high) last.high = price; if (price < last.low) last.low = price; last.close = price;
-//     candleSeries.update({ time:last.time, open:last.open, high:last.high, low:last.low, close:last.close });
-//   }
-//   updateChHeader();
-// }
-
-// ============================================================
-// INIT
-// ============================================================
-function init() {
-  buildWL();
-  buildTFBar();
-  fetchPrices();
-  setInterval(fetchPrices, 3000);  // Watchlist polling every 3s
-}
-
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-else init();
+function updateChHeader(){var p=prices[cur.sym];if(!p||!p.mid)return;var last=Number(p.mid),open=Number(p.open||0);var chg=open>0?((last-open)/open*100):0;var c=chg>=0?'up':'dn';document.getElementById('chPrice').textContent=fp(last,cur.prec);document.getElementById('chPrice').className='ch-price '+c;var ce=document.getElementById('chChg');ce.textContent=pct(chg);ce.className='ch-chg '+c;document.getElementById('hdrPrice').textContent=fp(last,cur.prec);document.getElementById('hdrPrice').style.color=chg>=0?'#26a69a':'#ef5350'}
+function buildTFBar(){var h='';TIMEFRAMES.forEach(function(t){h+='<div class="tf-btn'+(t.id===tf?' on':'')+'" onclick="setTF(\''+t.id+'\')">'+t.l+'</div>'});document.getElementById('tfBar').innerHTML=h}
+function setTF(t){tf=t;buildTFBar();loadCandles(cur.sym,tf);if(page==='CH')connectWS(cur.sym)}
+function init(){buildWL();buildTFBar();fetchPrices();setInterval(fetchPrices,5000)}
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 </script>
 </body>
 </html>
