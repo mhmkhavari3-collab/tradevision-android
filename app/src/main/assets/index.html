@@ -6,785 +6,586 @@
 <title>TradeVision</title>
 <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{
-  --bg:#0d1117;--card:#161b22;--border:#30363d;
-  --text:#e6edf3;--muted:#8b949e;--green:#3fb950;--red:#f85149;
-  --gold:#f0b90b;--blue:#58a6ff;--accent:#238636;
-}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;width:100vw;-webkit-overflow-scrolling:touch;overscroll-behavior:none}
-html{overscroll-behavior:none}
-/* HEADER */
-.hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--card);border-bottom:1px solid var(--border)}
-.hdr-logo{display:flex;align-items:center;gap:6px;font-size:16px;font-weight:700;color:var(--gold)}
-.hdr-logo svg{width:24px;height:24px}
-.hdr-sym{display:flex;align-items:center;gap:8px;cursor:pointer}
-.hdr-sym .name{font-weight:600;font-size:14px}
-.hdr-sym .live{font-size:10px;color:var(--green);display:flex;align-items:center;gap:3px}
-.hdr-sym .live::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--green)}
-.hdr-price{font-size:13px;font-weight:600}
-/* NAV */
-.nav{display:flex;border-top:1px solid var(--border);background:var(--card)}
-.nav-item{flex:1;text-align:center;padding:8px 0;font-size:10px;color:var(--muted);cursor:pointer;transition:color .2s}
-.nav-item.active{color:var(--gold)}
-.nav-item span{display:block;font-size:18px;margin-bottom:2px}
-/* PAGES */
-.pg{display:none;height:calc(100vh - 105px);overflow-y:auto}
-.pg.active{display:flex;flex-direction:column}
-/* WATCHLIST */
-.wl-search{padding:8px 12px}
-.wl-search input{width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);font-size:13px;outline:none}
-.wl-tabs{display:flex;gap:6px;padding:0 12px 8px;overflow-x:auto}
-.wl-tab{padding:4px 12px;border-radius:12px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;border:1px solid var(--border);color:var(--muted);transition:all .2s}
-.wl-tab.active{background:var(--gold);color:#000;border-color:var(--gold)}
-.asset{display:flex;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .2s}
-.asset:active{background:var(--card)}
-.asset-ico{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0}
-.asset-info{flex:1;margin-left:10px}
-.asset-name{font-size:13px;font-weight:600}
-.asset-meta{font-size:11px;color:var(--muted);margin-top:1px}
-.asset-price{text-align:right}
-.asset-pr{font-size:13px;font-weight:600}
-.asset-chg{font-size:11px;margin-top:1px}
-.up{color:var(--green)}.down{color:var(--red)}
-/* CHART */
-.chart-wrap{flex:1;position:relative;min-height:0;touch-action:none;-webkit-touch-callout:none;-webkit-user-select:none;overflow:hidden}
-#main-chart{width:100%;height:100%;touch-action:none}
-.chart-hdr{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:var(--card);border-bottom:1px solid var(--border)}
-.ch-info{display:flex;gap:8px;align-items:baseline}
-.ch-sym{font-weight:600;font-size:14px}
-.ch-price{font-size:13px;font-weight:600}
-.ch-chg{font-size:11px;padding:2px 6px;border-radius:4px}
-.ch-chg.up{background:rgba(63,185,80,.15);color:var(--green)}
-.ch-chg.down{background:rgba(248,81,73,.15);color:var(--red)}
-.tf-bar{display:flex;gap:4px;padding:4px 12px;background:var(--card);border-bottom:1px solid var(--border)}
-.tf-btn{padding:3px 10px;border-radius:6px;font-size:11px;cursor:pointer;color:var(--muted);border:1px solid var(--border)}
-.tf-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
-.ind-bar{display:flex;gap:4px;padding:4px 12px;background:var(--card);border-bottom:1px solid var(--border);overflow-x:auto}
-.ind-btn{padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;color:var(--muted);border:1px solid var(--border);white-space:nowrap}
-.ind-btn.active{background:rgba(88,166,255,.15);color:var(--blue);border-color:var(--blue)}
-.draw-bar{display:flex;gap:4px;padding:4px 12px;background:var(--card);border-bottom:1px solid var(--border)}
-.draw-btn{padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;color:var(--muted);border:1px solid var(--border)}
-.draw-btn.active{background:rgba(240,185,11,.15);color:var(--gold);border-color:var(--gold)}
-.ohlc-bar{display:flex;gap:8px;padding:3px 12px;font-size:10px;color:var(--muted);background:var(--card)}
-/* ALERTS */
-.al-header{display:flex;align-items:center;justify-content:space-between;padding:12px}
-.al-header h3{font-size:16px}
-.al-list{padding:0 12px}
-.al-item{display:flex;align-items:center;justify-content:space-between;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px}
-.al-del{background:var(--red);color:#fff;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer}
-.al-empty{text-align:center;padding:40px;color:var(--muted);font-size:13px}
-.btn-add{width:40px;height:40px;border-radius:50%;background:var(--gold);color:#000;border:none;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center}
-/* MODALS */
-.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.7);z-index:1000;display:none;align-items:flex-end}
-.modal-overlay.show{display:flex}
-.modal{background:var(--card);border-radius:16px 16px 0 0;width:100%;max-height:80vh;overflow-y:auto;padding:16px}
-.modal input,.modal select{width:100%;padding:10px;border-radius:8px;border:1px solid var(--border);background:var(--bg);color:var(--text);font-size:13px;margin-bottom:8px;outline:none}
-.modal .btn{width:100%;padding:10px;border-radius:8px;background:var(--gold);color:#000;font-weight:600;border:none;cursor:pointer;font-size:14px;margin-top:8px}
-/* TOAST */
-.toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);padding:8px 16px;border-radius:8px;font-size:12px;font-weight:500;z-index:2000;display:none}
-.toast.show{display:block}
-.toast.ok{background:var(--green);color:#000}
-.toast.err{background:var(--red);color:#fff}
-/* SETTINGS */
-.set-group{padding:12px}
-.set-g-title{font-size:14px;font-weight:600;margin-bottom:8px;color:var(--gold)}
-.set-item{display:flex;align-items:center;padding:10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px}
-.set-item .si-ico{font-size:18px;margin-right:10px}
-.set-item .si-info{flex:1}
-.set-item .si-l{font-size:13px;font-weight:500}
-.set-item .si-d{font-size:11px;color:var(--muted)}
-/* LOADING */
-.load-more{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(22,27,34,.95);padding:12px 24px;border-radius:8px;display:none;align-items:center;gap:8px;z-index:100;border:1px solid var(--border);font-size:12px;color:var(--muted)}
-.load-more.show{display:flex}
-.spin{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--gold);border-radius:50%;animation:spin .8s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
+*{margin:0;padding:0;box-sizing:border-box;outline:none}
+html,body{position:fixed;width:100%;height:100%;overflow:hidden;overscroll-behavior:none;-webkit-overflow-scrolling:touch;background:#0a0e14;color:#c5c8c9;font-family:-apple-system,BlinkMacSystemFont,sans-serif;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+.hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#131722;border-bottom:1px solid #1e222d}
+.hdr-title{font-size:14px;font-weight:700;color:#d1d4dc}
+.hdr-sym{font-size:13px;color:#787b86;cursor:pointer}
+.hdr-price{font-size:14px;font-weight:700}
+.nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:#131722;border-top:1px solid #1e222d;z-index:100}
+.nav-btn{flex:1;text-align:center;padding:8px 0;font-size:10px;color:#787b86;cursor:pointer}
+.nav-btn.on{color:#2196f3}
+.nav-btn svg{display:block;margin:0 auto 2px;width:20px;height:20px}
+.pg{display:none;position:absolute;top:0;left:0;right:0;bottom:48px;overflow:hidden}
+.pg.on{display:block}
+/* Watchlist */
+.wl{overflow-y:auto;height:100%;-webkit-overflow-scrolling:touch}
+.wl-row{display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #1e222d;cursor:pointer}
+.wl-row:active{background:#1e222d}
+.wl-sym{width:60px;font-size:14px;font-weight:600;color:#d1d4dc}
+.wl-name{flex:1;font-size:12px;color:#787b86}
+.wl-price{width:80px;text-align:right;font-size:14px;font-weight:600}
+.wl-chg{width:70px;text-align:right;font-size:12px}
+.up{color:#26a69a}.dn{color:#ef5350}
+/* Chart */
+.ch-wrap{display:flex;flex-direction:column;height:100%}
+.ch-bar{display:flex;align-items:center;justify-content:space-between;padding:4px 10px;background:#131722;border-bottom:1px solid #1e222d;flex-shrink:0}
+.ch-sym{font-size:14px;font-weight:600;color:#d1d4dc}
+.ch-price{font-size:14px;font-weight:700}
+.ch-chg{font-size:11px;padding:2px 6px;border-radius:3px}
+.ch-chg.up{background:rgba(38,166,154,.15);color:#26a69a}
+.ch-chg.dn{background:rgba(239,83,80,.15);color:#ef5350}
+.ch-live{font-size:9px;color:#26a69a;display:flex;align-items:center;gap:3px}
+.ch-live::before{content:'';width:6px;height:6px;border-radius:50%;background:#26a69a;animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.ohlc{display:flex;gap:8px;padding:2px 10px;font-size:10px;color:#787b86;background:#131722;flex-shrink:0}
+.ohlc b{color:#d1d4dc}
+.tf-bar{display:flex;gap:4px;padding:4px 10px;background:#131722;border-bottom:1px solid #1e222d;flex-shrink:0}
+.tf-btn{padding:3px 10px;border-radius:4px;font-size:11px;cursor:pointer;color:#787b86;background:#1e222d;border:none}
+.tf-btn.on{background:#2196f3;color:#fff}
+.chart-box{flex:1;position:relative;overflow:hidden;touch-action:none;-webkit-touch-callout:none;overscroll-behavior:none}
+.chart-box div{touch-action:none}
+.chart-box canvas{touch-action:none}
+#chartEl{width:100%;height:100%}
+.load-ind{position:absolute;top:40%;left:50%;transform:translate(-50%,-50%);background:rgba(19,23,34,.95);padding:8px 16px;border-radius:6px;border:1px solid #1e222d;display:none;font-size:11px;color:#787b86}
+.load-ind.on{display:flex;align-items:center;gap:6px}
+.spin{width:12px;height:12px;border:2px solid #1e222d;border-top-color:#2196f3;border-radius:50%;animation:sp .7s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+/* Alerts/Settings placeholder */
+.placeholder{display:flex;align-items:center;justify-content:center;height:100%;color:#787b86;font-size:14px;text-align:center;padding:40px}
+/* Toast */
+.toast{position:fixed;top:40px;left:50%;transform:translateX(-50%);padding:8px 16px;border-radius:6px;font-size:12px;z-index:999;display:none}
+.toast.on{display:block;background:#26a69a;color:#000}
 </style>
 </head>
 <body>
-
-<!-- HEADER -->
+<!-- Header -->
 <div class="hdr">
-  <div class="hdr-logo">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
-    TradeVision
-  </div>
-  <div class="hdr-sym" id="hdrSymBtn">
-    <div>
-      <div class="name" id="hdr-sym">XAU/USD</div>
-      <div id="chBroker" style="font-size:10px;color:var(--muted)">OANDA</div>
-    </div>
-    <div class="live">LIVE</div>
-  </div>
-  <div class="hdr-price" id="hdr-price" style="color:var(--green)">$4,035</div>
+  <div class="hdr-title">TradeVision</div>
+  <div class="hdr-sym" id="hdrSym">XAU/USD</div>
+  <div class="hdr-price" id="hdrPrice" style="color:#787b86">—</div>
 </div>
 
-<!-- PAGES -->
-<div id="pg-watchlist" class="pg active">
-  <div class="wl-search"><input type="text" placeholder="Search symbols..." id="wlSearch" oninput="filterWL()"></div>
-  <div class="wl-tabs" id="wlTabs"></div>
-  <div id="assetList"></div>
-</div>
-
-<div id="pg-chart" class="pg">
-  <div class="chart-hdr">
-    <div class="ch-info">
-      <span class="ch-sym" id="chSym">XAU/USD</span>
-      <span class="ch-price" id="chPrice">—</span>
-      <span class="ch-chg" id="chChg">—</span>
+<!-- Pages -->
+<div id="pgWL" class="pg on"><div class="wl" id="wlList"></div></div>
+<div id="pgCH" class="pg">
+  <div class="ch-wrap">
+    <div class="ch-bar">
+      <div>
+        <span class="ch-sym" id="chSym">XAU/USD</span>
+        <span class="ch-live" id="chLive" style="display:none">LIVE</span>
+      </div>
+      <div style="text-align:right">
+        <div class="ch-price" id="chPrice">—</div>
+        <div class="ch-chg" id="chChg">—</div>
+      </div>
     </div>
-    <div style="display:flex;gap:6px">
-      <button onclick="jumpToLive()" style="padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;color:var(--green);border:1px solid var(--green);background:transparent">Jump to Live</button>
+    <div class="ohlc" id="ohlc">O — H — L — C</div>
+    <div class="tf-bar" id="tfBar"></div>
+    <div class="chart-box" id="chartBox">
+      <div id="chartEl"></div>
+      <div class="load-ind" id="loadInd"><div class="spin"></div>Loading…</div>
     </div>
   </div>
-  <div class="ohlc-bar" id="ohlc"><b>O</b> — <b>H</b> — <b>L</b> — <b>C</b> — <b>V</b> —</div>
-  <div class="tf-bar" id="tfBar"></div>
-  <div class="chart-wrap">
-    <div id="main-chart"></div>
-    <div class="load-more" id="loadMore"><div class="spin"></div><span>Loading history...</span></div>
-  </div>
-  <div class="ind-bar" id="indBar"></div>
-  <div class="draw-bar" id="drawBar"></div>
 </div>
+<div id="pgAL" class="pg"><div class="placeholder">🔔 Alerts<br>Coming soon</div></div>
+<div id="pgST" class="pg"><div class="placeholder">⚙️ Settings<br>v6.0 · Functionality First</div></div>
 
-<div id="pg-alerts" class="pg">
-  <div class="al-header"><h3>Alerts</h3><button class="btn-add" onclick="openAlertModal()">+</button></div>
-  <div class="al-list" id="alList"></div>
-</div>
-
-<div id="pg-settings" class="pg">
-  <div class="set-group">
-    <div class="set-g-title">Display</div>
-    <div class="set-item"><div class="si-ico">📊</div><div class="si-info"><div class="si-l">Show Volume</div><div class="si-d">Volume bars on chart</div></div></div>
-    <div class="set-item"><div class="si-ico">🔍</div><div class="si-info"><div class="si-l">Crosshair</div><div class="si-d">Show crosshair on chart</div></div></div>
-  </div>
-  <div class="set-group">
-    <div class="set-g-title">Info</div>
-    <div class="set-item"><div class="si-ico">ℹ️</div><div class="si-info"><div class="si-l">Version</div><div class="si-d">TradeVision v4.0 · OANDA via Cloudflare</div></div></div>
-    <div class="set-item"><div class="si-ico">📡</div><div class="si-info"><div class="si-l">Data Source</div><div class="si-d">OANDA API via Cloudflare Worker Proxy</div></div></div>
-  </div>
-</div>
-
-<!-- NAV -->
+<!-- Nav -->
 <div class="nav">
-  <div class="nav-item active" onclick="showPage('watchlist')"><span>📋</span>Watchlist</div>
-  <div class="nav-item" onclick="showPage('chart')"><span>📈</span>Chart</div>
-  <div class="nav-item" onclick="showPage('alerts')"><span>🔔</span>Alerts</div>
-  <div class="nav-item" onclick="showPage('settings')"><span>⚙️</span>Settings</div>
-</div>
-
-<!-- MODALS -->
-<div class="modal-overlay" id="symOverlay">
-  <div class="modal">
-    <input type="text" placeholder="Search symbol..." id="symSearch" oninput="filterSymList(this.value)">
-    <div id="symList"></div>
-  </div>
-</div>
-
-<div class="modal-overlay" id="alertOverlay">
-  <div class="modal">
-    <h3 style="margin-bottom:12px">Create Alert</h3>
-    <select id="alSym"></select>
-    <select id="alDir"><option value="above">Price Above</option><option value="below">Price Below</option></select>
-    <input type="number" id="alPrice" placeholder="Price" step="0.01">
-    <button class="btn" onclick="createAlert()">Create Alert</button>
-    <button class="btn" style="background:var(--border);margin-top:4px" onclick="closeAlertModal()">Cancel</button>
-  </div>
+  <div class="nav-btn on" onclick="showPg('WL')"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 4h18v2H3V4zm0 7h18v2H3v-2zm0 7h18v2H3v-2z"/></svg>Watchlist</div>
+  <div class="nav-btn" onclick="showPg('CH')"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h2v8H3v-8zm4-4h2v12H7V9zm4-4h2v16h-2V5zm4 8h2v8h-2v-8zm4-2h2v10h-2V11z"/></svg>Chart</div>
+  <div class="nav-btn" onclick="showPg('AL')"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 22c1.1 0 2-.9 2-2h-4a2 2 0 002 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>Alerts</div>
+  <div class="nav-btn" onclick="showPg('ST')"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1115.6 12 3.6 3.6 0 0112 15.6z"/></svg>Settings</div>
 </div>
 
 <div class="toast" id="toast"></div>
 
 <script>
-// ===== CONFIG =====
+// ============================================================
+// CONFIG
+// ============================================================
 var PROXY = 'https://tradevision-oanda-proxy.vlmprofileo.workers.dev';
 
-// ===== SYMBOLS (ALL OANDA) =====
 var SYMBOLS = [
-  // Metals
-  {sym:'XAUUSD',name:'Gold',display:'XAU/USD',icon:'🥇',color:'#f0b90b',cat:'metals',broker:'OANDA'},
-  {sym:'XAGUSD',name:'Silver',display:'XAG/USD',icon:'🥈',color:'#c0c0c0',cat:'metals',broker:'OANDA'},
-  // Energy
-  {sym:'WTI',name:'WTI Oil',display:'WTI/USD',icon:'🛢️',color:'#8B4513',cat:'energy',broker:'OANDA'},
-  {sym:'BRENT',name:'Brent Oil',display:'BRENT/USD',icon:'🛢️',color:'#A0522D',cat:'energy',broker:'OANDA'},
-  // Forex Majors
-  {sym:'EURUSD',name:'Euro',display:'EUR/USD',icon:'🇪🇺',color:'#003399',cat:'forex',broker:'OANDA'},
-  {sym:'GBPUSD',name:'Pound',display:'GBP/USD',icon:'🇬🇧',color:'#C8102E',cat:'forex',broker:'OANDA'},
-  {sym:'USDJPY',name:'Yen',display:'USD/JPY',icon:'🇯🇵',color:'#BC002D',cat:'forex',broker:'OANDA'},
-  {sym:'AUDUSD',name:'Aussie',display:'AUD/USD',icon:'🇦🇺',color:'#00008B',cat:'forex',broker:'OANDA'},
-  {sym:'USDCHF',name:'Swiss',display:'USD/CHF',icon:'🇨🇭',color:'#D52B1E',cat:'forex',broker:'OANDA'},
-  {sym:'USDCAD',name:'Loonie',display:'USD/CAD',icon:'🇨🇦',color:'#FF0000',cat:'forex',broker:'OANDA'},
-  {sym:'NZDUSD',name:'Kiwi',display:'NZD/USD',icon:'🇳🇿',color:'#00247D',cat:'forex',broker:'OANDA'},
-  // Forex Crosses
-  {sym:'EURGBP',name:'Euro/Pound',display:'EUR/GBP',icon:'🇪🇺',color:'#003399',cat:'forex',broker:'OANDA'},
-  {sym:'EURJPY',name:'Euro/Yen',display:'EUR/JPY',icon:'🇪🇺',color:'#003399',cat:'forex',broker:'OANDA'},
-  {sym:'GBPJPY',name:'Pound/Yen',display:'GBP/JPY',icon:'🇬🇧',color:'#C8102E',cat:'forex',broker:'OANDA'},
-  {sym:'EURCHF',name:'Euro/Swiss',display:'EUR/CHF',icon:'🇪🇺',color:'#003399',cat:'forex',broker:'OANDA'},
-  {sym:'EURCAD',name:'Euro/Loonie',display:'EUR/CAD',icon:'🇪🇺',color:'#003399',cat:'forex',broker:'OANDA'},
-  {sym:'EURAUD',name:'Euro/Aussie',display:'EUR/AUD',icon:'🇪🇺',color:'#003399',cat:'forex',broker:'OANDA'},
-  {sym:'EURNZD',name:'Euro/Kiwi',display:'EUR/NZD',icon:'🇪🇺',color:'#003399',cat:'forex',broker:'OANDA'},
-  {sym:'GBPAUD',name:'Pound/Aussie',display:'GBP/AUD',icon:'🇬🇧',color:'#C8102E',cat:'forex',broker:'OANDA'},
-  {sym:'GBPCAD',name:'Pound/Loonie',display:'GBP/CAD',icon:'🇬🇧',color:'#C8102E',cat:'forex',broker:'OANDA'},
-  {sym:'GBPCHF',name:'Pound/Swiss',display:'GBP/CHF',icon:'🇬🇧',color:'#C8102E',cat:'forex',broker:'OANDA'},
-  {sym:'GBPNZD',name:'Pound/Kiwi',display:'GBP/NZD',icon:'🇬🇧',color:'#C8102E',cat:'forex',broker:'OANDA'},
-  {sym:'AUDCAD',name:'Aussie/Loonie',display:'AUD/CAD',icon:'🇦🇺',color:'#00008B',cat:'forex',broker:'OANDA'},
-  {sym:'AUDCHF',name:'Aussie/Swiss',display:'AUD/CHF',icon:'🇦🇺',color:'#00008B',cat:'forex',broker:'OANDA'},
-  {sym:'AUDJPY',name:'Aussie/Yen',display:'AUD/JPY',icon:'🇦🇺',color:'#00008B',cat:'forex',broker:'OANDA'},
-  {sym:'AUDNZD',name:'Aussie/Kiwi',display:'AUD/NZD',icon:'🇦🇺',color:'#00008B',cat:'forex',broker:'OANDA'},
-  {sym:'CADJPY',name:'Loonie/Yen',display:'CAD/JPY',icon:'🇨🇦',color:'#FF0000',cat:'forex',broker:'OANDA'},
-  {sym:'CADCHF',name:'Loonie/Swiss',display:'CAD/CHF',icon:'🇨🇦',color:'#FF0000',cat:'forex',broker:'OANDA'},
-  {sym:'NZDJPY',name:'Kiwi/Yen',display:'NZD/JPY',icon:'🇳🇿',color:'#00247D',cat:'forex',broker:'OANDA'},
-  {sym:'NZDCAD',name:'Kiwi/Loonie',display:'NZD/CAD',icon:'🇳🇿',color:'#00247D',cat:'forex',broker:'OANDA'},
-  {sym:'NZDCHF',name:'Kiwi/Swiss',display:'NZD/CHF',icon:'🇳🇿',color:'#00247D',cat:'forex',broker:'OANDA'},
-  {sym:'CHFJPY',name:'Swiss/Yen',display:'CHF/JPY',icon:'🇨🇭',color:'#D52B1E',cat:'forex',broker:'OANDA'},
-  // Crypto (OKX)
-  {sym:'BTC-USDT',name:'Bitcoin',display:'BTC/USDT',icon:'₿',color:'#f7931a',cat:'crypto',broker:'OKX'},
-  {sym:'ETH-USDT',name:'Ethereum',display:'ETH/USDT',icon:'Ξ',color:'#627eea',cat:'crypto',broker:'OKX'},
-  {sym:'SOL-USDT',name:'Solana',display:'SOL/USDT',icon:'◎',color:'#9945ff',cat:'crypto',broker:'OKX'},
-  {sym:'XRP-USDT',name:'Ripple',display:'XRP/USDT',icon:'X',color:'#23292f',cat:'crypto',broker:'OKX'},
-  {sym:'ADA-USDT',name:'Cardano',display:'ADA/USDT',icon:'◆',color:'#0033ad',cat:'crypto',broker:'OKX'},
-  {sym:'DOGE-USDT',name:'Dogecoin',display:'DOGE/USDT',icon:'Ð',color:'#c2a633',cat:'crypto',broker:'OKX'},
-  {sym:'AVAX-USDT',name:'Avalanche',display:'AVAX/USDT',icon:'▲',color:'#e84142',cat:'crypto',broker:'OKX'},
-  {sym:'DOT-USDT',name:'Polkadot',display:'DOT/USDT',icon:'●',color:'#e6007a',cat:'crypto',broker:'OKX'},
-  {sym:'LINK-USDT',name:'Chainlink',display:'LINK/USDT',icon:'⬡',color:'#2a5ada',cat:'crypto',broker:'OKX'},
-  {sym:'MATIC-USDT',name:'Polygon',display:'MATIC/USDT',icon:'⬡',color:'#8247e5',cat:'crypto',broker:'OKX'},
+  {sym:'XAUUSD',name:'Gold',display:'XAU/USD',color:'#f0b90b',cat:'metals',prec:2,minMove:0.01},
+  {sym:'XAGUSD',name:'Silver',display:'XAG/USD',color:'#c0c0c0',cat:'metals',prec:3,minMove:0.001},
+  {sym:'WTI',name:'WTI Oil',display:'WTI/USD',color:'#8B4513',cat:'energy',prec:3,minMove:0.001},
+  {sym:'BRENT',name:'Brent',display:'BRENT/USD',color:'#A0522D',cat:'energy',prec:3,minMove:0.001},
+  {sym:'EURUSD',name:'Euro',display:'EUR/USD',color:'#003399',cat:'forex',prec:5,minMove:0.00001},
+  {sym:'GBPUSD',name:'Pound',display:'GBP/USD',color:'#C8102E',cat:'forex',prec:5,minMove:0.00001},
+  {sym:'USDJPY',name:'Yen',display:'USD/JPY',color:'#BC002D',cat:'forex',prec:3,minMove:0.001},
+  {sym:'AUDUSD',name:'Aussie',display:'AUD/USD',color:'#00008B',cat:'forex',prec:5,minMove:0.00001},
+  {sym:'USDCHF',name:'Swiss',display:'USD/CHF',color:'#D52B1E',cat:'forex',prec:5,minMove:0.00001},
+  {sym:'USDCAD',name:'Loonie',display:'USD/CAD',color:'#FF0000',cat:'forex',prec:5,minMove:0.00001},
+  {sym:'NZDUSD',name:'Kiwi',display:'NZD/USD',color:'#00247D',cat:'forex',prec:5,minMove:0.00001},
+  {sym:'EURGBP',name:'EUR/GBP',display:'EUR/GBP',color:'#003399',cat:'forex',prec:5,minMove:0.00001},
+  {sym:'EURJPY',name:'EUR/JPY',display:'EUR/JPY',color:'#003399',cat:'forex',prec:3,minMove:0.001},
+  {sym:'GBPJPY',name:'GBP/JPY',display:'GBP/JPY',color:'#C8102E',cat:'forex',prec:3,minMove:0.001},
+  {sym:'BTC-USDT',name:'Bitcoin',display:'BTC/USDT',color:'#f7931a',cat:'crypto',prec:2,minMove:0.01},
+  {sym:'ETH-USDT',name:'Ethereum',display:'ETH/USDT',color:'#627eea',cat:'crypto',prec:2,minMove:0.01},
+  {sym:'SOL-USDT',name:'Solana',display:'SOL/USDT',color:'#9945ff',cat:'crypto',prec:2,minMove:0.01},
+  {sym:'XRP-USDT',name:'Ripple',display:'XRP/USDT',color:'#23292f',cat:'crypto',prec:4,minMove:0.0001},
 ];
 
-var TIMEFRAMES = [{id:'1m',l:'1m'},{id:'5m',l:'5m'},{id:'15m',l:'15m'},{id:'1H',l:'1H'},{id:'4H',l:'4H'},{id:'1D',l:'1D'}];
-var INDS = [{id:'SMA 20',l:'SMA 20'},{id:'SMA 50',l:'SMA 50'},{id:'EMA 12',l:'EMA 12'},{id:'EMA 26',l:'EMA 26'},{id:'RSI 14',l:'RSI 14'},{id:'MACD',l:'MACD'}];
-var DRAWS = [{id:'hline',l:'Horizontal'},{id:'tline',l:'Trend'},{id:'clear',l:'Clear'}];
+var TIMEFRAMES = [
+  {id:'1m',label:'1m'},{id:'5m',label:'5m'},{id:'15m',label:'15m'},
+  {id:'1H',label:'1H'},{id:'4H',label:'4H'},{id:'1D',label:'1D'}
+];
 
-// ===== STATE =====
-var S = {
-  cur: SYMBOLS[0],
-  tf: '15m',
-  prices: {},
-  alerts: JSON.parse(localStorage.getItem('tv_alerts')||'[]'),
-  ind: {},
-  drawTool: null,
-  drawPts: [],
-  drawLines: [],
-  page: 'watchlist',
-  _lastCandles: [],
-  loadingMore: false,
-};
-
+// ============================================================
+// STATE
+// ============================================================
+var cur = SYMBOLS[0];   // current symbol
+var tf = '15m';          // current timeframe
+var prices = {};         // {sym: {bid, ask, mid, last, open, time}}
+var candles = [];        // current chart candles array
+var page = 'WL';
 var chart = null, candleSeries = null, volumeSeries = null;
-var seqId = 0, abortCtrl = null;
-var pollTimer = null;
+var seqId = 0;
+var wsConn = null;       // WebSocket connection (for future use)
+var loadingMore = false;
 
-// ===== HELPERS =====
-function fp(v) { return v >= 1000 ? '$'+Number(v).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2}) : Number(v).toFixed(v < 1 ? 5 : (v < 100 ? 3 : 2)); }
-function fv(v) { if(!v) return '—'; if(v>=1e9) return (v/1e9).toFixed(2)+'B'; if(v>=1e6) return (v/1e6).toFixed(2)+'M'; if(v>=1e3) return (v/1e3).toFixed(1)+'K'; return v.toFixed(0); }
-function toast(msg,type) {
+// ============================================================
+// HELPERS
+// ============================================================
+function fmtPrice(v, prec) {
+  if (v == null || isNaN(v)) return '—';
+  return Number(v).toFixed(prec != null ? prec : 2);
+}
+function fmtPct(v) { return v >= 0 ? '+' + v.toFixed(2) + '%' : v.toFixed(2) + '%'; }
+function toast(m) {
   var el = document.getElementById('toast');
-  el.textContent = msg; el.className = 'toast show '+(type||'ok');
-  setTimeout(function(){el.className='toast'},2500);
+  el.textContent = m; el.className = 'toast on';
+  setTimeout(function() { el.className = 'toast'; }, 2000);
 }
 
-// ===== PRICE FETCH =====
-function fetchAllPrices() {
-  // OANDA symbols via Worker proxy
-  var oandaSyms = SYMBOLS.filter(function(s){return s.broker==='OANDA'}).map(function(s){return s.sym}).join(',');
-  if (oandaSyms) {
-    fetch(PROXY+'/price?symbols='+oandaSyms).then(function(r){return r.json()}).then(function(d){
-      if (d.prices) {
-        d.prices.forEach(function(p){
-          if (p.mid !== null && p.mid !== undefined) {
-            S.prices[p.symbol] = {last:p.mid, bid:p.bid, ask:p.ask, sodUtc8:p.open, spread:p.spread, time:p.time};
-          }
-        });
-      }
-      refreshView();
-    }).catch(function(){refreshView()});
-  }
-  // OKX symbols via REST API (with fallback)
-  var okxSyms = SYMBOLS.filter(function(s){return s.broker==='OKX'}).map(function(s){return s.sym});
-  if (okxSyms.length > 0) {
-    fetch('https://www.okx.com/api/v5/market/tickers?instType=SPOT').then(function(r){return r.json()}).then(function(d){
-      if (d && d.data) {
-        d.data.forEach(function(t){
-          if (okxSyms.indexOf(t.instId) >= 0 && t.last) {
-            S.prices[t.instId] = {last:t.last, sodUtc8:t.open24h||t.last, vol24h:t.volCcy24h||'0'};
-          }
-        });
-      }
-      refreshView();
-    }).catch(function(){});
+// ============================================================
+// PAGE NAVIGATION
+// ============================================================
+function showPg(name) {
+  page = name;
+  document.querySelectorAll('.pg').forEach(function(p) { p.className = 'pg'; });
+  document.getElementById('pg' + name).className = 'pg on';
+  document.querySelectorAll('.nav-btn').forEach(function(b) { b.className = 'nav-btn'; });
+  document.querySelectorAll('.nav-btn')[['WL','CH','AL','ST'].indexOf(name)].className = 'nav-btn on';
+
+  if (name === 'CH') {
+    setTimeout(function() {
+      initChart();
+      loadCandles(cur.sym, tf);
+      startChartPolling();
+    }, 50);
+  } else {
+    stopChartPolling();
   }
 }
 
-// ===== OKX WEBSOCKET for live crypto prices =====
-var _ws = null;
-function connectOKXWS() {
-  try {
-    if (_ws) { try{_ws.close()}catch(e){} }
-    _ws = new WebSocket('wss://ws.okx.com:8443/api/v5/public/ws');
-    _ws.onopen = function() {
-      var args = SYMBOLS.filter(function(s){return s.broker==='OKX'}).map(function(s){return{channel:'tickers',instId:s.sym}});
-      if (args.length > 0) _ws.send(JSON.stringify({op:'subscribe', args:args}));
-    };
-    _ws.onmessage = function(evt) {
-      try {
-        var msg = JSON.parse(evt.data);
-        if (msg.data) msg.data.forEach(function(t){
-          if (t.instId && t.last) {
-            S.prices[t.instId] = {last:t.last, sodUtc8:t.sodUtc8||t.open24h||t.last, vol24h:t.volCcy24h||'0', high24h:t.high24h, low24h:t.low24h};
-          }
-        });
-        refreshView();
-      } catch(e) {}
-    };
-    _ws.onclose = function(){setTimeout(connectOKXWS, 3000)};
-    _ws.onerror = function(){};
-  } catch(e) {}
-}
-
-function refreshView() {
-  if (S.page === 'watchlist') buildAssetList();
-  if (S.page === 'chart') updateChartHeader();
-  checkAlerts();
-}
-
-// ===== WATCHLIST =====
-var wlTab = 'all';
-function buildTabs() {
-  var tabs = [{id:'all',l:'All'},{id:'metals',l:'Metals'},{id:'energy',l:'Energy'},{id:'forex',l:'Forex'},{id:'crypto',l:'Crypto'}];
+// ============================================================
+// WATCHLIST
+// ============================================================
+function buildWL() {
   var h = '';
-  tabs.forEach(function(t){h+='<div class="wl-tab'+(t.id===wlTab?' active':'')+'" onclick="setTab(\''+t.id+'\')">'+t.l+'</div>'});
-  document.getElementById('wlTabs').innerHTML = h;
+  for (var i = 0; i < SYMBOLS.length; i++) {
+    var s = SYMBOLS[i];
+    var p = prices[s.sym] || {};
+    var last = p.mid != null ? Number(p.mid) : 0;
+    var open = p.open != null ? Number(p.open) : 0;
+    var chg = open > 0 ? ((last - open) / open * 100) : 0;
+    var cls = chg > 0 ? 'up' : chg < 0 ? 'dn' : '';
+    h += '<div class="wl-row" onclick="goChart(\'' + s.sym + '\')">' +
+      '<div class="wl-sym">' + s.display + '</div>' +
+      '<div class="wl-name">' + s.name + '</div>' +
+      '<div class="wl-price ' + cls + '">' + (last ? fmtPrice(last, s.prec) : '—') + '</div>' +
+      '<div class="wl-chg ' + cls + '">' + (last ? fmtPct(chg) : '') + '</div>' +
+      '</div>';
+  }
+  document.getElementById('wlList').innerHTML = h;
 }
-function setTab(t) { wlTab = t; buildTabs(); buildAssetList(); }
-function buildAssetList() {
-  var q = (document.getElementById('wlSearch')||{}).value || '';
-  var list = SYMBOLS.filter(function(s){
-    if (wlTab !== 'all' && s.cat !== wlTab) return false;
-    if (q && s.name.toLowerCase().indexOf(q.toLowerCase()) === -1 && s.display.toLowerCase().indexOf(q.toLowerCase()) === -1) return false;
-    return true;
-  });
-  var container = document.getElementById('assetList');
-  var h = '';
-  list.forEach(function(s) {
-    var p = S.prices[s.sym] || {};
-    var pr = p.last ? parseFloat(p.last) : 0;
-    var chg = p.sodUtc8 && p.last ? ((pr - parseFloat(p.sodUtc8)) / parseFloat(p.sodUtc8) * 100) : 0;
-    var cls = chg > 0 ? 'up' : chg < 0 ? 'down' : '';
-    h += '<div class="asset" onclick="switchSymbol(\''+s.sym+'\')">';
-    h += '<div class="asset-ico" style="background:'+s.color+'">'+s.icon+'</div>';
-    h += '<div class="asset-info"><div class="asset-name">'+s.display+'</div><div class="asset-meta">'+s.broker+' · '+s.cat.toUpperCase()+'</div></div>';
-    h += '<div class="asset-price"><div class="asset-pr '+cls+'">'+(pr ? fp(pr) : '—')+'</div>';
-    h += '<div class="asset-chg '+cls+'">'+(pr ? (chg>=0?'+':'')+chg.toFixed(2)+'%' : '')+'</div></div></div>';
-  });
-  container.innerHTML = h || '<div style="padding:20px;text-align:center;color:var(--muted)">No results</div>';
-}
-function filterWL() { buildAssetList(); }
 
-// ===== SYMBOL SWITCH =====
-function switchSymbol(sym) {
-  var s = SYMBOLS.find(function(x){return x.sym===sym});
+function goChart(symName) {
+  var s = SYMBOLS.find(function(x) { return x.sym === symName; });
   if (!s) return;
-  S.cur = s;
-  document.getElementById('hdr-sym').textContent = s.display;
-  document.getElementById('chSym').textContent = s.display;
-  document.getElementById('chBroker').textContent = s.broker || '';
-  showPage('chart');
-  loadData(s.sym, S.tf);
-}
-function openSymModal() { document.getElementById('symOverlay').classList.add('show'); document.getElementById('symSearch').value=''; filterSymList(''); }
-function closeSymModal() { document.getElementById('symOverlay').classList.remove('show'); }
-function filterSymList(q) {
-  q = q.toLowerCase();
-  var list = SYMBOLS.filter(function(s){return !q || s.name.toLowerCase().indexOf(q)>=0 || s.display.toLowerCase().indexOf(q)>=0});
-  var h = '';
-  list.forEach(function(s) {
-    var p = S.prices[s.sym];
-    h += '<div class="asset" onclick="switchSymbol(\''+s.sym+'\');closeSymModal()">';
-    h += '<div class="asset-ico" style="background:'+s.color+'">'+s.icon+'</div>';
-    h += '<div class="asset-info"><div class="asset-name">'+s.display+'</div></div>';
-    h += '<div class="asset-price"><div class="asset-pr">'+(p?fp(p.last):'—')+'</div></div></div>';
-  });
-  document.getElementById('symList').innerHTML = h || '<div style="padding:20px;text-align:center;color:var(--muted)">No results</div>';
+  cur = s;
+  document.getElementById('hdrSym').textContent = s.display;
+  showPg('CH');
 }
 
-// ===== CHART ENGINE v2 =====
-var _lastPrice = 0;
-var _chartReady = false;
+// ============================================================
+// PRICE FETCHING
+// ============================================================
+function fetchPrices() {
+  // OANDA symbols
+  var oSyms = SYMBOLS.filter(function(s) { return s.cat !== 'crypto'; }).map(function(s) { return s.sym; });
+  if (oSyms.length > 0) {
+    fetch(PROXY + '/price?symbols=' + oSyms.join(','))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d.prices) return;
+        d.prices.forEach(function(p) {
+          if (p.mid != null) {
+            var old = prices[p.symbol] || {};
+            prices[p.symbol] = {
+              bid: p.bid, ask: p.ask, mid: p.mid,
+              last: p.mid,
+              open: p.open || old.open,
+              time: p.time
+            };
+          }
+        });
+        renderPrices();
+      })
+      .catch(function() {});
+  }
 
-function initChartOnce() {
+  // OKX symbols
+  var kSyms = SYMBOLS.filter(function(s) { return s.cat === 'crypto'; });
+  if (kSyms.length > 0) {
+    fetch('https://www.okx.com/api/v5/market/tickers?instType=SPOT')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (!d || !d.data) return;
+        var kIds = kSyms.map(function(s) { return s.sym; });
+        d.data.forEach(function(t) {
+          if (kIds.indexOf(t.instId) >= 0 && t.last) {
+            var old = prices[t.instId] || {};
+            prices[t.instId] = {
+              mid: t.last, last: t.last,
+              open: t.open24h || old.open,
+              time: new Date().toISOString()
+            };
+          }
+        });
+        renderPrices();
+      })
+      .catch(function() {});
+  }
+}
+
+function renderPrices() {
+  if (page === 'WL') buildWL();
+  if (page === 'CH') updateChHeader();
+}
+
+// ============================================================
+// CHART ENGINE
+// ============================================================
+var chartPoll = null;
+
+function initChart() {
   if (chart) return;
-  var c = document.getElementById('main-chart');
-  
-  chart = LightweightCharts.createChart(c, {
-    width: c.clientWidth,
-    height: c.clientHeight || 400,
-    layout: {background:{color:'#0d1117'}, textColor:'#e6edf3', fontSize:11},
-    grid: {vertLines:{color:'rgba(48,54,61,.5)'}, horzLines:{color:'rgba(48,54,61,.5)'}},
-    crosshair: {mode: LightweightCharts.CrosshairMode.Normal},
+  var el = document.getElementById('chartEl');
+
+  chart = LightweightCharts.createChart(el, {
+    width: el.clientWidth,
+    height: el.clientHeight || 400,
+    layout: { background: { color: '#0a0e14' }, textColor: '#787b86', fontSize: 11 },
+    grid: { vertLines: { color: '#1e222d' }, horzLines: { color: '#1e222d' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
     timeScale: {
-      timeVisible:true, secondsVisible:false,
-      rightOffset:5, barSpacing:6,
-      fixLeftEdge:false, fixRightEdge:false,
-      shiftVisibleRangeOnNewBar:false
+      timeVisible: true, secondsVisible: false,
+      rightOffset: 5, barSpacing: 6,
+      fixLeftEdge: false, fixRightEdge: false,
+      shiftVisibleRangeOnNewBar: false
     },
-    rightPriceScale: {borderVisible:false, autoScale:true},
-    // TOUCH/SCROLL/Zoom handling
-    handleScroll: {
-      vertTouchDrag: true,
-      horzTouchDrag: true,
-      mouseWheel: true,
-      pressedMouseMove: true,
-      horzDrag: true
-    },
-    handleScale: {
-      axisPressedMouseMove: {time:true, price:true},
-      mouseWheel: true,
-      pinch: true,
-      resetDoubleTap: true
-    }
+    rightPriceScale: { borderVisible: false, autoScale: true },
+    handleScroll: { vertTouchDrag: false, horzTouchDrag: true, mouseWheel: true, pressedMouseMove: true, horzDrag: true },
+    handleScale: { axisPressedMouseMove: { time: true, price: true }, mouseWheel: true, pinch: true, resetDoubleTap: true }
   });
 
   candleSeries = chart.addCandlestickSeries({
-    upColor:'#3fb950', downColor:'#f85149',
-    borderUpColor:'#3fb950', borderDownColor:'#f85149',
-    wickUpColor:'#3fb950', wickDownColor:'#f85149'
+    upColor: '#26a69a', downColor: '#ef5350',
+    borderUpColor: '#26a69a', borderDownColor: '#ef5350',
+    wickUpColor: '#26a69a', wickDownColor: '#ef5350'
   });
 
   volumeSeries = chart.addHistogramSeries({
-    color:'#238636',
-    priceFormat:{type:'volume'},
-    priceScaleId:'vol'
+    color: '#26a69a',
+    priceFormat: { type: 'volume' },
+    priceScaleId: 'vol'
   });
-  chart.priceScale('vol').applyOptions({scaleMargins:{top:.8, bottom:0}});
+  chart.priceScale('vol').applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
 
   // Crosshair OHLC display
   chart.subscribeCrosshairMove(function(p) {
-    if (p && p.time && p.seriesData) {
-      var cv = p.seriesData.get(candleSeries);
-      var vv = p.seriesData.get(volumeSeries);
-      if (cv) {
-        document.getElementById('ohlc').innerHTML =
-          '<b>O</b> '+cv.open.toFixed(2)+
-          ' <b>H</b> <span class="up">'+cv.high.toFixed(2)+'</span>'+
-          ' <b>L</b> <span class="down">'+cv.low.toFixed(2)+'</span>'+
-          ' <b>C</b> '+cv.close.toFixed(2)+
-          ' <b>V</b> '+(vv?fv(vv.volume):'—');
-      }
-    }
+    if (!p || !p.time || !p.seriesData) return;
+    var cv = p.seriesData.get(candleSeries);
+    if (!cv) return;
+    var pr = cur.prec;
+    document.getElementById('ohlc').innerHTML =
+      '<b>O</b> ' + fmtPrice(cv.open, pr) +
+      ' <b>H</b> <span class="up">' + fmtPrice(cv.high, pr) + '</span>' +
+      ' <b>L</b> <span class="dn">' + fmtPrice(cv.low, pr) + '</span>' +
+      ' <b>C</b> ' + fmtPrice(cv.close, pr);
   });
 
-  // ===== INFINITE SCROLL: load history when near start =====
+  // INFINITE SCROLL: load more when near left edge
   chart.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
-    if (!range || !S._lastCandles || S._lastCandles.length < 2) return;
-    var firstTime = S._lastCandles[0].time;
-    // If visible range starts within 10 bars of first candle
-    if (range.from <= 10) {
-      loadMoreHistory();
-    }
+    if (!range || !candles || candles.length < 2) return;
+    if (range.from <= 10) loadMoreHistory();
   });
 
   // Resize handler
-  var resizeTimer = null;
+  var rt = null;
   new ResizeObserver(function() {
-    if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(function() {
-      if (chart && c) chart.applyOptions({width:c.clientWidth, height:c.clientHeight});
+    if (rt) clearTimeout(rt);
+    rt = setTimeout(function() {
+      if (chart && el) chart.applyOptions({ width: el.clientWidth, height: el.clientHeight });
     }, 100);
-  }).observe(c);
+  }).observe(el);
 
-  _chartReady = true;
+  applyPrecision();
 }
 
-// ===== LIVE CANDLE: Real tick-by-tick update =====
-function updateLiveCandle() {
-  if (!candleSeries || !S._lastCandles || S._lastCandles.length === 0) return;
-  var p = S.prices[S.cur.sym];
-  if (!p || !p.last) return;
-  
-  var price = parseFloat(p.last);
-  if (price <= 0 || price === _lastPrice) return;
-  _lastPrice = price;
-  
-  var last = S._lastCandles[S._lastCandles.length - 1];
-  var now = Math.floor(Date.now() / 1000);
-  
-  // Check if we need a new candle
-  var tfSecs = {'1m':60,'5m':300,'15m':900,'1H':3600,'4H':14400,'1D':86400};
-  var secs = tfSecs[S.tf] || 900;
-  var currentCandleStart = Math.floor(now / secs) * secs;
-  
-  if (currentCandleStart > last.time) {
-    // New candle period - create new candle
-    var newCandle = {
-      time: currentCandleStart,
-      open: last.close,  // Previous close becomes new open
-      high: price,
-      low: price,
-      close: price,
-      volume: 0
-    };
-    S._lastCandles.push(newCandle);
-    candleSeries.update(newCandle);
-    volumeSeries.update({time:currentCandleStart, value:0, color:'rgba(63,185,80,.3)'});
-  } else {
-    // Same candle period - update existing candle
-    if (price > last.high) last.high = price;
-    if (price < last.low) last.low = price;
-    last.close = price;
-    last.volume += Math.random() * 5;
-    
-    candleSeries.update({
-      time: last.time,
-      open: last.open,
-      high: last.high,
-      low: last.low,
-      close: last.close
-    });
-    volumeSeries.update({
-      time: last.time,
-      value: last.volume,
-      color: last.close >= last.open ? 'rgba(63,185,80,.3)' : 'rgba(248,81,73,.3)'
+function applyPrecision() {
+  if (candleSeries && cur) {
+    candleSeries.applyOptions({
+      priceFormat: { type: 'price', precision: cur.prec, minMove: cur.minMove }
     });
   }
-  
-  updateChartHeader();
 }
 
-// ===== LOAD DATA =====
-function loadData(sym, tf) {
+// ============================================================
+// LOAD CANDLES
+// ============================================================
+function loadCandles(sym, timeframe) {
   var mySeq = ++seqId;
-  if (abortCtrl) abortCtrl.abort();
-  abortCtrl = new AbortController();
-  
-  var symObj = SYMBOLS.find(function(s){return s.sym===sym});
-  if (symObj && symObj.broker === 'OKX') {
-    // OKX crypto: use OKX API directly
-    fetch('https://www.okx.com/api/v5/market/candles?instId='+sym+'&bar='+tf+'&limit=300').then(function(r){return r.json()}).then(function(d){
-      if (mySeq !== seqId || !d || !d.data || d.data.length === 0) return;
-      var candles = d.data.reverse().map(function(c){
-        return {time:parseInt(c[0])/1000, open:parseFloat(c[1]), high:parseFloat(c[2]), low:parseFloat(c[3]), close:parseFloat(c[4]), volume:parseFloat(c[5])};
-      });
-      var seen = {};
-      candles = candles.filter(function(c){if(seen[c.time])return false;seen[c.time]=true;return true});
-      candleSeries.setData(candles);
-      volumeSeries.setData(candles.map(function(c){
-        return {time:c.time, value:c.volume, color:c.close>=c.open?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'};
-      }));
-      S._lastCandles = candles;
-      updateChartHeader();
-      if (chart) { chart.priceScale().applyOptions({autoScale:true}); chart.timeScale().fitContent(); }
-    }).catch(function(){});
+  candles = [];
+
+  // OANDA
+  var symObj = SYMBOLS.find(function(s) { return s.sym === sym; });
+  var isCrypto = symObj && symObj.cat === 'crypto';
+
+  if (isCrypto) {
+    fetch('https://www.okx.com/api/v5/market/candles?instId=' + sym + '&bar=' + timeframe + '&limit=300')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (mySeq !== seqId || !d || !d.data) return;
+        candles = d.data.reverse().map(function(c) {
+          return { time: parseInt(c[0]) / 1000, open: parseFloat(c[1]), high: parseFloat(c[2]), low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]) };
+        }).filter(function(c, i, arr) { return i === 0 || arr[i-1].time !== c.time; });
+        setChartData();
+      })
+      .catch(function() {});
   } else {
-    // OANDA symbols: use Worker proxy
-    var url = PROXY + '/candles?symbol=' + sym + '&timeframe=' + tf + '&count=500';
-    fetch(url).then(function(r){return r.json()}).then(function(d){
-      if (mySeq !== seqId || !d || !d.candles || d.candles.length === 0) return;
-      candleSeries.setData(d.candles);
-      volumeSeries.setData(d.candles.map(function(c){
-        return {time:c.time, value:c.volume, color:c.close>=c.open?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'};
-      }));
-      S._lastCandles = d.candles;
-      updateChartHeader();
-      if (chart) { chart.priceScale().applyOptions({autoScale:true}); chart.timeScale().fitContent(); }
-    }).catch(function(){});
+    fetch(PROXY + '/candles?symbol=' + sym + '&timeframe=' + timeframe + '&count=500')
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (mySeq !== seqId || !d || !d.candles) return;
+        candles = d.candles;
+        setChartData();
+        if (symObj) applyPrecision();
+      })
+      .catch(function() {});
   }
 }
 
-// ===== LOAD MORE HISTORY (infinite scroll) =====
+function setChartData() {
+  if (!candleSeries || !candles || candles.length === 0) return;
+  candleSeries.setData(candles);
+  volumeSeries.setData(candles.map(function(c) {
+    return { time: c.time, value: c.volume || 0, color: c.close >= c.open ? 'rgba(38,166,154,.3)' : 'rgba(239,83,80,.3)' };
+  }));
+  chart.timeScale().fitContent();
+  updateChHeader();
+}
+
+// ============================================================
+// INFINITE SCROLL — LOAD MORE HISTORY
+// ============================================================
 function loadMoreHistory() {
-  if (!S.cur || S.loadingMore || !S._lastCandles || S._lastCandles.length === 0) return;
-  S.loadingMore = true;
-  var oldestTime = S._lastCandles[0].time;
+  if (!cur || loadingMore || !candles || candles.length === 0) return;
+  loadingMore = true;
+  var oldestTime = candles[0].time;
   var mySeq = ++seqId;
-  document.getElementById('loadMore').classList.add('show');
+  document.getElementById('loadInd').className = 'load-ind on';
 
-  var symObj = S.cur;
-  if (symObj.broker === 'OKX') {
-    // OKX history
-    fetch('https://www.okx.com/api/v5/market/history-candles?instId='+S.cur.sym+'&bar='+S.tf+'&limit=300&after='+(oldestTime*1000)).then(function(r){return r.json()}).then(function(d){
-      if (mySeq !== seqId || !d || !d.data || d.data.length === 0) {
-        S.loadingMore = false;
-        document.getElementById('loadMore').classList.remove('show');
-        return;
-      }
-      var newCandles = d.data.reverse().map(function(c){
-        return {time:parseInt(c[0])/1000, open:parseFloat(c[1]), high:parseFloat(c[2]), low:parseFloat(c[3]), close:parseFloat(c[4]), volume:parseFloat(c[5])};
-      }).filter(function(c){
-        var exists = S._lastCandles.some(function(e){return e.time===c.time});
-        return !exists && !isNaN(c.open);
-      });
-      if (newCandles.length > 0) {
-        S._lastCandles = newCandles.concat(S._lastCandles);
-        candleSeries.setData(S._lastCandles);
-        volumeSeries.setData(S._lastCandles.map(function(c){return{time:c.time,value:c.volume,color:c.close>=c.open?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'}}));
-        toast('Loaded ' + newCandles.length + ' more candles');
-      }
-      S.loadingMore = false;
-      document.getElementById('loadMore').classList.remove('show');
-    }).catch(function(){
-      S.loadingMore = false;
-      document.getElementById('loadMore').classList.remove('show');
-    });
+  var isCrypto = cur.cat === 'crypto';
+
+  if (isCrypto) {
+    fetch('https://www.okx.com/api/v5/market/history-candles?instId=' + cur.sym + '&bar=' + tf + '&limit=100&after=' + (oldestTime * 1000))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (mySeq !== seqId || !d || !d.data || d.data.length === 0) {
+          loadingMore = false;
+          document.getElementById('loadInd').className = 'load-ind';
+          return;
+        }
+        var newC = d.data.reverse().map(function(c) {
+          return { time: parseInt(c[0]) / 1000, open: parseFloat(c[1]), high: parseFloat(c[2]), low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]) };
+        }).filter(function(c) {
+          return !candles.some(function(e) { return e.time === c.time; }) && !isNaN(c.open);
+        });
+        if (newC.length > 0) {
+          candles = newC.concat(candles);
+          setChartData();
+          toast('+' + newC.length + ' candles');
+        }
+        loadingMore = false;
+        document.getElementById('loadInd').className = 'load-ind';
+      })
+      .catch(function() { loadingMore = false; document.getElementById('loadInd').className = 'load-ind'; });
   } else {
-    // OANDA history via Worker proxy
-    var url = PROXY + '/candles?symbol=' + S.cur.sym + '&timeframe=' + S.tf + '&count=500&before=' + (oldestTime - 1);
-    fetch(url).then(function(r){return r.json()}).then(function(d){
-      if (mySeq !== seqId || !d || !d.candles || d.candles.length === 0) {
-        S.loadingMore = false;
-        document.getElementById('loadMore').classList.remove('show');
-        return;
-      }
-      var existingTimes = {};
-      S._lastCandles.forEach(function(c){existingTimes[c.time]=true});
-      var newCandles = d.candles.filter(function(c){return !existingTimes[c.time]});
-      if (newCandles.length > 0) {
-        S._lastCandles = newCandles.concat(S._lastCandles);
-        candleSeries.setData(S._lastCandles.map(function(c){return{time:c.time,open:c.open,high:c.high,low:c.low,close:c.close}}));
-        volumeSeries.setData(S._lastCandles.map(function(c){return{time:c.time,value:c.volume,color:c.close>=c.open?'rgba(63,185,80,.3)':'rgba(248,81,73,.3)'}}));
-        toast('Loaded ' + newCandles.length + ' more candles');
-      }
-      S.loadingMore = false;
-      document.getElementById('loadMore').classList.remove('show');
-    }).catch(function(){
-      S.loadingMore = false;
-      document.getElementById('loadMore').classList.remove('show');
-    });
+    fetch(PROXY + '/candles?symbol=' + cur.sym + '&timeframe=' + tf + '&count=500&before=' + (oldestTime - 1))
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (mySeq !== seqId || !d || !d.candles || d.candles.length === 0) {
+          loadingMore = false;
+          document.getElementById('loadInd').className = 'load-ind';
+          return;
+        }
+        var exist = {};
+        candles.forEach(function(c) { exist[c.time] = true; });
+        var newC = d.candles.filter(function(c) { return !exist[c.time]; });
+        if (newC.length > 0) {
+          candles = newC.concat(candles);
+          setChartData();
+          toast('+' + newC.length + ' candles');
+        }
+        loadingMore = false;
+        document.getElementById('loadInd').className = 'load-ind';
+      })
+      .catch(function() { loadingMore = false; document.getElementById('loadInd').className = 'load-ind'; });
   }
 }
 
-function updateChartHeader() {
-  var p = S.prices[S.cur.sym];
-  if (!p || !p.last) return;
-  document.getElementById('chPrice').textContent = '$' + parseFloat(p.last).toFixed(2);
-  document.getElementById('hdr-price').textContent = '$' + parseFloat(p.last).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
-  var chg = p.sodUtc8 ? (parseFloat(p.last) - parseFloat(p.sodUtc8)) / parseFloat(p.sodUtc8) * 100 : 0;
-  var ce = document.getElementById('chChg');
-  ce.textContent = (chg>=0?'+':'') + chg.toFixed(2) + '%';
-  document.getElementById('chPrice').style.color = chg >= 0 ? 'var(--green)' : 'var(--red)';
-  document.getElementById('hdr-price').style.color = chg >= 0 ? 'var(--green)' : 'var(--red)';
-  ce.className = 'ch-chg ' + (chg >= 0 ? 'up' : 'down');
+// ============================================================
+// LIVE CANDLE UPDATE (Fast Polling —1s)
+// ============================================================
+var chartPollTimer = null;
+
+function startChartPolling() {
+  stopChartPolling();
+  // Update candle every 1 second
+  chartPollTimer = setInterval(function() {
+    if (page !== 'CH' || !candleSeries || !candles || candles.length === 0) return;
+    var p = prices[cur.sym];
+    if (!p || !p.mid) return;
+
+    var price = Number(p.mid);
+    if (price <= 0) return;
+
+    var last = candles[candles.length - 1];
+    var now = Math.floor(Date.now() / 1000);
+
+    // Calculate candle start time based on timeframe
+    var tfSecs = { '1m': 60, '5m': 300, '15m': 900, '1H': 3600, '4H': 14400, '1D': 86400 };
+    var secs = tfSecs[tf] || 900;
+    var curStart = Math.floor(now / secs) * secs;
+
+    if (curStart > last.time) {
+      // New candle period — create new candle
+      var nc = { time: curStart, open: last.close, high: price, low: price, close: price, volume: 0 };
+      candles.push(nc);
+      candleSeries.update(nc);
+      volumeSeries.update({ time: curStart, value: 0, color: 'rgba(38,166,154,.3)' });
+    } else {
+      // Same candle — update high/low/close
+      if (price > last.high) last.high = price;
+      if (price < last.low) last.low = price;
+      last.close = price;
+      candleSeries.update({ time: last.time, open: last.open, high: last.high, low: last.low, close: last.close });
+    }
+    updateChHeader();
+  }, 1000);  // 1 second polling
 }
 
-function jumpToLive() {
-  if (chart) { chart.timeScale().scrollToRealTime(); toast('Jumped to live'); }
+function stopChartPolling() {
+  if (chartPollTimer) { clearInterval(chartPollTimer); chartPollTimer = null; }
 }
 
-// ===== TIMEFRAME =====
+// ============================================================
+// CHART HEADER
+// ============================================================
+function updateChHeader() {
+  var p = prices[cur.sym];
+  if (!p || !p.mid) return;
+  var last = Number(p.mid);
+  var open = Number(p.open || 0);
+  var chg = open > 0 ? ((last - open) / open * 100) : 0;
+  var cls = chg >= 0 ? 'up' : 'dn';
+
+  document.getElementById('chPrice').textContent = fmtPrice(last, cur.prec);
+  document.getElementById('chPrice').className = 'ch-price ' + cls;
+
+  var chgEl = document.getElementById('chChg');
+  chgEl.textContent = fmtPct(chg);
+  chgEl.className = 'ch-chg ' + cls;
+
+  document.getElementById('hdrPrice').textContent = fmtPrice(last, cur.prec);
+  document.getElementById('hdrPrice').style.color = chg >= 0 ? '#26a69a' : '#ef5350';
+}
+
+// ============================================================
+// TIMEFRAME BAR
+// ============================================================
 function buildTFBar() {
   var h = '';
-  TIMEFRAMES.forEach(function(tf){h+='<div class="tf-btn'+(tf.id===S.tf?' active':'')+'" onclick="setTF(\''+tf.id+'\')">'+tf.l+'</div>'});
+  TIMEFRAMES.forEach(function(t) {
+    h += '<div class="tf-btn' + (t.id === tf ? ' on' : '') + '" onclick="setTF(\'' + t.id + '\')">' + t.label + '</div>';
+  });
   document.getElementById('tfBar').innerHTML = h;
 }
-function setTF(tf) { S.tf = tf; buildTFBar(); loadData(S.cur.sym, tf); }
 
-// ===== INDICATORS =====
-function buildIndBar() {
-  var h = '';
-  INDS.forEach(function(ind){h+='<div class="ind-btn'+(S.ind[ind.id]?' active':'')+'" onclick="toggleInd(\''+ind.id+'\')">'+ind.l+'</div>'});
-  document.getElementById('indBar').innerHTML = h;
-}
-function toggleInd(ind) { S.ind[ind] = !S.ind[ind]; buildIndBar(); }
-
-// ===== DRAWING =====
-function buildDrawBar() {
-  var h = '';
-  DRAWS.forEach(function(d){h+='<div class="draw-btn'+(S.drawTool===d.id?' active':'')+'" onclick="setDrawTool(\''+d.id+'\')">'+d.l+'</div>'});
-  document.getElementById('drawBar').innerHTML = h;
-}
-function setDrawTool(t) {
-  if (t === 'clear') {
-    S.drawLines.forEach(function(l){try{candleSeries.removePriceLine(l)}catch(e){}});
-    S.drawLines = []; S.drawPts = []; S.drawTool = null; buildDrawBar(); toast('Cleared');
-    return;
-  }
-  S.drawTool = S.drawTool === t ? null : t;
-  S.drawPts = []; buildDrawBar();
+function setTF(newTf) {
+  tf = newTf;
+  buildTFBar();
+  loadCandles(cur.sym, tf);
 }
 
-// ===== ALERTS =====
-function openAlertModal() {
-  var sel = document.getElementById('alSym');
-  sel.innerHTML = '';
-  SYMBOLS.forEach(function(s){
-    var o = document.createElement('option');
-    o.value = s.sym; o.textContent = s.display;
-    if (s.sym === S.cur.sym) o.selected = true;
-    sel.appendChild(o);
-  });
-  document.getElementById('alPrice').value = '';
-  var p = S.prices[S.cur.sym];
-  if (p && p.last) document.getElementById('alPrice').value = parseFloat(p.last).toFixed(2);
-  document.getElementById('alertOverlay').classList.add('show');
-}
-function closeAlertModal() { document.getElementById('alertOverlay').classList.remove('show'); }
-function createAlert() {
-  var sym = document.getElementById('alSym').value;
-  var dir = document.getElementById('alDir').value;
-  var price = parseFloat(document.getElementById('alPrice').value);
-  if (isNaN(price) || price <= 0) { toast('Enter valid price', 'err'); return; }
-  S.alerts.push({sym:sym, dir:dir, price:price, triggered:false, ts:Date.now()});
-  saveAlerts(); closeAlertModal(); renderAlerts(); toast('Alert created');
-}
-function deleteAlert(i) { S.alerts.splice(i,1); saveAlerts(); renderAlerts(); toast('Deleted'); }
-function renderAlerts() {
-  var el = document.getElementById('alList');
-  if (S.alerts.length === 0) { el.innerHTML = '<div class="al-empty">No alerts yet.<br>Tap + to create.</div>'; return; }
-  var h = '';
-  S.alerts.forEach(function(a,i) {
-    var s = SYMBOLS.find(function(x){return x.sym===a.sym});
-    var icon = a.dir === 'above' ? '↑' : '↓';
-    var cls = a.dir === 'above' ? 'up' : 'down';
-    h += '<div class="al-item"><div><div style="font-weight:600;font-size:13px">'+(s?s.display:a.sym)+'</div>';
-    h += '<div style="color:var(--muted);font-size:11px">'+a.dir+' $'+a.price+'</div></div>';
-    h += '<button class="al-del" onclick="deleteAlert('+i+')">Delete</button></div>';
-  });
-  el.innerHTML = h;
-}
-function checkAlerts() {
-  S.alerts.forEach(function(a) {
-    if (a.triggered) return;
-    var p = S.prices[a.sym];
-    if (!p || !p.last) return;
-    var price = parseFloat(p.last);
-    if ((a.dir === 'above' && price >= a.price) || (a.dir === 'below' && price <= a.price)) {
-      a.triggered = true; saveAlerts();
-      toast('🔔 Alert: ' + a.sym + ' ' + a.dir + ' $' + a.price);
-      renderAlerts();
-    }
-  });
-}
-function saveAlerts() { localStorage.setItem('tv_alerts', JSON.stringify(S.alerts)); }
+// ============================================================
+// WEBSOCKET (Ready for future deploy)
+// ============================================================
+// When Worker v4 is deployed with /stream endpoint, enable this:
+//
+// function connectWS() {
+//   if (wsConn) { try { wsConn.close(); } catch(e) {} }
+//   var url = PROXY.replace('https://', 'wss://') + '/stream?symbol=' + cur.sym;
+//   wsConn = new WebSocket(url);
+//   wsConn.onopen = function() { console.log('[WS CONNECTED]'); document.getElementById('chLive').style.display = ''; };
+//   wsConn.onmessage = function(e) {
+//     try {
+//       var tick = JSON.parse(e.data);
+//       if (tick.type === 'tick') {
+//         console.log('[PRICE TICK]', tick.symbol, tick.mid);
+//         prices[tick.symbol] = { mid: tick.mid, last: tick.mid, bid: tick.bid, ask: tick.ask };
+//         updateLiveCandle(tick.mid);
+//       }
+//     } catch(x) {}
+//   };
+//   wsConn.onclose = function() { document.getElementById('chLive').style.display = 'none'; setTimeout(connectWS, 3000); };
+//   wsConn.onerror = function() {};
+// }
+//
+// function updateLiveCandle(price) {
+//   if (!candleSeries || !candles || candles.length === 0) return;
+//   var last = candles[candles.length - 1];
+//   var now = Math.floor(Date.now() / 1000);
+//   var tfSecs = { '1m':60, '5m':300, '15m':900, '1H':3600, '4H':14400, '1D':86400 };
+//   var secs = tfSecs[tf] || 900;
+//   var curStart = Math.floor(now / secs) * secs;
+//   if (curStart > last.time) {
+//     var nc = { time: curStart, open: last.close, high: price, low: price, close: price, volume: 0 };
+//     candles.push(nc); candleSeries.update(nc);
+//   } else {
+//     if (price > last.high) last.high = price; if (price < last.low) last.low = price; last.close = price;
+//     candleSeries.update({ time:last.time, open:last.open, high:last.high, low:last.low, close:last.close });
+//   }
+//   updateChHeader();
+// }
 
-// ===== PAGE NAV =====
-function showPage(name) {
-  S.page = name;
-  document.querySelectorAll('.pg').forEach(function(p){p.classList.remove('active')});
-  document.getElementById('pg-'+name).classList.add('active');
-  document.querySelectorAll('.nav-item').forEach(function(n){
-    n.classList.toggle('active', n.textContent.trim().toLowerCase() === name);
-  });
-  if (name === 'chart') {
-    setTimeout(function(){
-      initChartOnce();
-      loadData(S.cur.sym, S.tf);
-    }, 50);
-  }
-  if (name === 'alerts') renderAlerts();
-}
-
-// ===== INIT =====
+// ============================================================
+// INIT
+// ============================================================
 function init() {
-  buildTabs(); buildAssetList(); buildTFBar(); buildIndBar(); buildDrawBar();
-  renderAlerts();
-  fetchAllPrices();
-  connectOKXWS();
-  pollTimer = setInterval(fetchAllPrices, 3000);
-  setInterval(function(){if(S.page==='chart'&&S.cur)updateChartHeader()}, 3000);
-  setInterval(function(){if(S.page==='chart'&&_chartReady)updateLiveCandle()}, 500); // Live tick every 500ms
-  document.getElementById('hdrSymBtn').addEventListener('click', openSymModal);
-  document.getElementById('symOverlay').addEventListener('click', function(e){if(e.target===this)closeSymModal()});
-  document.getElementById('alertOverlay').addEventListener('click', function(e){if(e.target===this)closeAlertModal()});
+  buildWL();
+  buildTFBar();
+  fetchPrices();
+  setInterval(fetchPrices, 3000);  // Watchlist polling every 3s
 }
 
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+else init();
 </script>
 </body>
 </html>
