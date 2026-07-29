@@ -183,6 +183,32 @@ var OANDA_BASE='https://api-fxtrade.oanda.com/v3/instruments';
 var OANDA_MAP={'EUR-USD':'EUR_USD','GBP-USD':'GBP_USD','USD-JPY':'USD_JPY','AUD-USD':'AUD_USD','USD-CHF':'USD_CHF','XAU-USDT-SWAP':'XAU_USD','XAG-USDT-SWAP':'XAG_USD','WTI-USD-SWAP':'WTICO_USD','BRENT-USD-SWAP':'BCO_USD'};
 var OANDA_TF={'1m':'M1','5m':'M5','15m':'M15','1H':'H1','4H':'H4','1D':'D'};
 
+
+// ===== OKX WEBSOCKET =====
+var _ws=null;var _wsTimer=null;
+function connectWS(){
+  try{
+    if(_ws){try{_ws.close()}catch(e){}}
+    _ws=new WebSocket('wss://ws.okx.com:8443/api/v5/public/ws');
+    _ws.onopen=function(){
+      var args=SYMS.filter(function(s){return s.broker==='OKX'}).map(function(s){return{channel:'tickers',instId:s.sym}});
+      if(args.length>0)_ws.send(JSON.stringify({op:'subscribe',args:args}));
+    };
+    _ws.onmessage=function(evt){
+      try{
+        var msg=JSON.parse(evt.data);
+        if(msg.data)msg.data.forEach(function(t){
+          if(t.instId&&t.last){
+            S.prices[t.instId]={last:t.last,sodUtc8:t.sodUtc8||t.open24h||t.last,vol24h:t.volCcy24h||'0',high24h:t.high24h||'0',low24h:t.low24h||'0',change24h:t.change24h||'0'};
+          }
+        });
+        refreshView();
+      }catch(e){}
+    };
+    _ws.onclose=function(){_wsTimer=setTimeout(connectWS,3000)};
+    _ws.onerror=function(){};
+  }catch(e){}
+}
 // ===== STATE =====
 var S={cur:SYMS[0],tf:'15m',page:'watchlist',prices:{},alerts:[],ind:{},settings:{sound:true,polling:true,volume:true,crosshair:true},drawTool:null,drawPts:[],drawLines:[]};
 var chart,candleSeries,volumeSeries,indLines={},pollTimer=null,seqId=0,abortCtrl=null;
@@ -196,6 +222,7 @@ function toast(m,t){var el=document.getElementById('toast');el.textContent=m;el.
 function saveAlerts(){try{localStorage.setItem('tv_alerts',JSON.stringify(S.alerts))}catch(e){}}
 function saveSettings(){try{localStorage.setItem('tv_settings',JSON.stringify(S.settings))}catch(e){}}
 
+function refreshView(){buildAssetList();updateChartHeader();checkAlerts();}
 // ===== OANDA API =====
 function fetchOANDA(sym,tf){
   var inst=OANDA_MAP[sym];if(!inst)return Promise.resolve(null);
@@ -615,11 +642,11 @@ function init(){
   buildTabs();buildAssetList();buildTFBar();buildIndBar();buildDrawBar();
   renderAlerts();buildSettings();
   fetchAllPrices();
-  pollTimer=setInterval(fetchAllPrices,3000);
+  connectWS();
+  pollTimer=setInterval(fetchAllPrices,5000);
   setInterval(checkAlerts,1500);
   setInterval(updateCandleTimer,1000);updateCandleTimer();
   setInterval(function(){if(S.page==='chart'&&S.cur)simulateLiveCandle()},500);
-  setInterval(function(){if(S.page==='chart'&&S.cur)fetchOANDAprices().then(function(){updateChartHeader()})},3000);
   document.getElementById('hdrSymBtn').addEventListener('click',openSymModal);
   document.getElementById('symSearch').addEventListener('input',function(){filterSymList(this.value)});
   document.getElementById('symOverlay').addEventListener('click',function(e){if(e.target===this)closeSymModal()});
