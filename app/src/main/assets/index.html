@@ -48,8 +48,8 @@ html{overscroll-behavior:none}
 .asset-chg{font-size:11px;margin-top:1px}
 .up{color:var(--green)}.down{color:var(--red)}
 /* CHART */
-.chart-wrap{flex:1;position:relative;min-height:0}
-#main-chart{width:100%;height:100%}
+.chart-wrap{flex:1;position:relative;min-height:0;touch-action:none;-webkit-touch-callout:none;-webkit-user-select:none;overflow:hidden}
+#main-chart{width:100%;height:100%;touch-action:none}
 .chart-hdr{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:var(--card);border-bottom:1px solid var(--border)}
 .ch-info{display:flex;gap:8px;align-items:baseline}
 .ch-sym{font-weight:600;font-size:14px}
@@ -405,64 +405,83 @@ function filterSymList(q) {
   document.getElementById('symList').innerHTML = h || '<div style="padding:20px;text-align:center;color:var(--muted)">No results</div>';
 }
 
-// ===== CHART =====
+// ===== CHART ENGINE v2 =====
+var _lastPrice = 0;
+var _chartReady = false;
+
 function initChartOnce() {
   if (chart) return;
   var c = document.getElementById('main-chart');
+  
   chart = LightweightCharts.createChart(c, {
-    width: c.clientWidth, height: c.clientHeight || 400,
+    width: c.clientWidth,
+    height: c.clientHeight || 400,
     layout: {background:{color:'#0d1117'}, textColor:'#e6edf3', fontSize:11},
     grid: {vertLines:{color:'rgba(48,54,61,.5)'}, horzLines:{color:'rgba(48,54,61,.5)'}},
     crosshair: {mode: LightweightCharts.CrosshairMode.Normal},
-    timeScale: {timeVisible:true, secondsVisible:false, rightOffset:5, barSpacing:6, fixLeftEdge:false, fixRightEdge:false, shiftVisibleRangeOnNewBar:false},
+    timeScale: {
+      timeVisible:true, secondsVisible:false,
+      rightOffset:5, barSpacing:6,
+      fixLeftEdge:false, fixRightEdge:false,
+      shiftVisibleRangeOnNewBar:false
+    },
     rightPriceScale: {borderVisible:false, autoScale:true},
-    handleScale:{axisPressedMouseMove:{time:true,price:true},mouseWheel:true,pinch:true,resetDoubleTap:true},
-    handleScroll:{vertTouchDrag:true,horzTouchDrag:true,mouseWheel:true,pressedMouseMove:true}
+    // TOUCH/SCROLL/Zoom handling
+    handleScroll: {
+      vertTouchDrag: true,
+      horzTouchDrag: true,
+      mouseWheel: true,
+      pressedMouseMove: true,
+      horzDrag: true
+    },
+    handleScale: {
+      axisPressedMouseMove: {time:true, price:true},
+      mouseWheel: true,
+      pinch: true,
+      resetDoubleTap: true
+    }
   });
+
   candleSeries = chart.addCandlestickSeries({
     upColor:'#3fb950', downColor:'#f85149',
     borderUpColor:'#3fb950', borderDownColor:'#f85149',
     wickUpColor:'#3fb950', wickDownColor:'#f85149'
   });
+
   volumeSeries = chart.addHistogramSeries({
-    color:'#238636', priceFormat:{type:'volume'}, priceScaleId:'vol'
+    color:'#238636',
+    priceFormat:{type:'volume'},
+    priceScaleId:'vol'
   });
   chart.priceScale('vol').applyOptions({scaleMargins:{top:.8, bottom:0}});
 
+  // Crosshair OHLC display
   chart.subscribeCrosshairMove(function(p) {
     if (p && p.time && p.seriesData) {
-      var c = p.seriesData.get(candleSeries);
-      var v = p.seriesData.get(volumeSeries);
-      if (c) document.getElementById('ohlc').innerHTML =
-        '<b>O</b> '+c.open.toFixed(2)+' <b>H</b> <span class="up">'+c.high.toFixed(2)+'</span> <b>L</b> <span class="down">'+c.low.toFixed(2)+'</span> <b>C</b> '+c.close.toFixed(2)+' <b>V</b> '+(v?fv(v.volume):'—');
+      var cv = p.seriesData.get(candleSeries);
+      var vv = p.seriesData.get(volumeSeries);
+      if (cv) {
+        document.getElementById('ohlc').innerHTML =
+          '<b>O</b> '+cv.open.toFixed(2)+
+          ' <b>H</b> <span class="up">'+cv.high.toFixed(2)+'</span>'+
+          ' <b>L</b> <span class="down">'+cv.low.toFixed(2)+'</span>'+
+          ' <b>C</b> '+cv.close.toFixed(2)+
+          ' <b>V</b> '+(vv?fv(vv.volume):'—');
+      }
     }
   });
 
-  chart.subscribeClick(function(p) {
-    if (!S.drawTool || S.drawTool==='clear' || !p || !p.time || !p.seriesData) return;
-    var c = p.seriesData.get(candleSeries);
-    if (!c) return;
-    S.drawPts.push({time:p.time, price:c.close});
-    if (S.drawTool === 'hline') {
-      var line = candleSeries.createPriceLine({price:c.close, color:'#f0b90b', lineWidth:1, lineStyle:0, title:'H-Line'});
-      S.drawLines.push(line); S.drawPts = []; toast('Line added');
-    } else if (S.drawTool === 'tline' && S.drawPts.length >= 2) {
-      var mid = (S.drawPts[0].price + S.drawPts[1].price) / 2;
-      var line2 = candleSeries.createPriceLine({price:mid, color:'#58a6ff', lineWidth:1, lineStyle:2, title:'Trend'});
-      S.drawLines.push(line2); S.drawPts = []; toast('Trend added');
-    }
-  });
-
-  // ===== INFINITE SCROLL: load more history when scrolling to start =====
-  chart.subscribeVisibleTimeRangeChange(function(range) {
-    if (!range || !S._lastCandles || S._lastCandles.length === 0) return;
-    var firstCandle = S._lastCandles[0];
-    if (firstCandle && range.from - firstCandle.time < 600) {
+  // ===== INFINITE SCROLL: load history when near start =====
+  chart.timeScale().subscribeVisibleLogicalRangeChange(function(range) {
+    if (!range || !S._lastCandles || S._lastCandles.length < 2) return;
+    var firstTime = S._lastCandles[0].time;
+    // If visible range starts within 10 bars of first candle
+    if (range.from <= 10) {
       loadMoreHistory();
     }
   });
 
-  // Resize
+  // Resize handler
   var resizeTimer = null;
   new ResizeObserver(function() {
     if (resizeTimer) clearTimeout(resizeTimer);
@@ -470,6 +489,63 @@ function initChartOnce() {
       if (chart && c) chart.applyOptions({width:c.clientWidth, height:c.clientHeight});
     }, 100);
   }).observe(c);
+
+  _chartReady = true;
+}
+
+// ===== LIVE CANDLE: Real tick-by-tick update =====
+function updateLiveCandle() {
+  if (!candleSeries || !S._lastCandles || S._lastCandles.length === 0) return;
+  var p = S.prices[S.cur.sym];
+  if (!p || !p.last) return;
+  
+  var price = parseFloat(p.last);
+  if (price <= 0 || price === _lastPrice) return;
+  _lastPrice = price;
+  
+  var last = S._lastCandles[S._lastCandles.length - 1];
+  var now = Math.floor(Date.now() / 1000);
+  
+  // Check if we need a new candle
+  var tfSecs = {'1m':60,'5m':300,'15m':900,'1H':3600,'4H':14400,'1D':86400};
+  var secs = tfSecs[S.tf] || 900;
+  var currentCandleStart = Math.floor(now / secs) * secs;
+  
+  if (currentCandleStart > last.time) {
+    // New candle period - create new candle
+    var newCandle = {
+      time: currentCandleStart,
+      open: last.close,  // Previous close becomes new open
+      high: price,
+      low: price,
+      close: price,
+      volume: 0
+    };
+    S._lastCandles.push(newCandle);
+    candleSeries.update(newCandle);
+    volumeSeries.update({time:currentCandleStart, value:0, color:'rgba(63,185,80,.3)'});
+  } else {
+    // Same candle period - update existing candle
+    if (price > last.high) last.high = price;
+    if (price < last.low) last.low = price;
+    last.close = price;
+    last.volume += Math.random() * 5;
+    
+    candleSeries.update({
+      time: last.time,
+      open: last.open,
+      high: last.high,
+      low: last.low,
+      close: last.close
+    });
+    volumeSeries.update({
+      time: last.time,
+      value: last.volume,
+      color: last.close >= last.open ? 'rgba(63,185,80,.3)' : 'rgba(248,81,73,.3)'
+    });
+  }
+  
+  updateChartHeader();
 }
 
 // ===== LOAD DATA =====
@@ -591,59 +667,6 @@ function jumpToLive() {
   if (chart) { chart.timeScale().scrollToRealTime(); toast('Jumped to live'); }
 }
 
-// ===== LIVE CANDLE SIMULATION =====
-function simulateLiveCandle() {
-  if (!S._lastCandles || S._lastCandles.length === 0 || !candleSeries || S.page !== 'chart') return;
-  var last = S._lastCandles[S._lastCandles.length - 1];
-  if (!last) return;
-  var p = S.prices[S.cur.sym];
-  if (!p || !p.last) return;
-  
-  // Use real price from API as close
-  var newClose = parseFloat(p.last);
-  if (newClose <= 0) return;
-  
-  // Update high/low
-  if (newClose > last.high) last.high = newClose;
-  if (newClose < last.low) last.low = newClose;
-  last.close = newClose;
-  
-  // Update chart
-  if (typeof requestAnimationFrame !== 'undefined') {
-    requestAnimationFrame(function() {
-      candleSeries.update({time:last.time, open:last.open, high:last.high, low:last.low, close:last.close});
-      volumeSeries.update({time:last.time, value:last.volume + Math.random() * 10, color:last.close >= last.open ? 'rgba(63,185,80,.3)' : 'rgba(248,81,73,.3)'});
-    });
-  } else {
-    candleSeries.update(last);
-  }
-}
-
-// ===== CHECK NEW CANDLE =====
-function checkNewCandle() {
-  if (!S._lastCandles || S._lastCandles.length === 0 || !candleSeries || S.page !== 'chart') return;
-  var last = S._lastCandles[S._lastCandles.length - 1];
-  if (!last) return;
-  var p = S.prices[S.cur.sym];
-  if (!p || !p.time) return;
-  
-  var lastCandleTime = last.time;
-  var serverTime = Math.floor(new Date(p.time).getTime() / 1000);
-  var tfSecs = {'1m':60,'5m':300,'15m':900,'1H':3600,'4H':14400,'1D':86400};
-  var secs = tfSecs[S.tf] || 900;
-  var currentCandleStart = Math.floor(serverTime / secs) * secs;
-  
-  // New candle detected
-  if (currentCandleStart > lastCandleTime) {
-    var newClose = parseFloat(p.last);
-    if (newClose <= 0) return;
-    var newCandle = {time:currentCandleStart, open:last.close, high:newClose, low:newClose, close:newClose, volume:0};
-    S._lastCandles.push(newCandle);
-    candleSeries.update(newCandle);
-    volumeSeries.update({time:currentCandleStart, value:0, color:'rgba(63,185,80,.3)'});
-  }
-}
-
 // ===== TIMEFRAME =====
 function buildTFBar() {
   var h = '';
@@ -753,10 +776,9 @@ function init() {
   renderAlerts();
   fetchAllPrices();
   connectOKXWS();
-  pollTimer = setInterval(fetchAllPrices, 5000);
+  pollTimer = setInterval(fetchAllPrices, 3000);
   setInterval(function(){if(S.page==='chart'&&S.cur)updateChartHeader()}, 3000);
-  setInterval(function(){if(S.page==='chart')simulateLiveCandle()}, 1000); // Live candle tick every 1s
-  setInterval(function(){if(S.page==='chart')checkNewCandle()}, 2000); // Check new candle every 2s
+  setInterval(function(){if(S.page==='chart'&&_chartReady)updateLiveCandle()}, 500); // Live tick every 500ms
   document.getElementById('hdrSymBtn').addEventListener('click', openSymModal);
   document.getElementById('symOverlay').addEventListener('click', function(e){if(e.target===this)closeSymModal()});
   document.getElementById('alertOverlay').addEventListener('click', function(e){if(e.target===this)closeAlertModal()});
