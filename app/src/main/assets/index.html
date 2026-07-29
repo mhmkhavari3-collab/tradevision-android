@@ -12,7 +12,8 @@
   --text:#e6edf3;--muted:#8b949e;--green:#3fb950;--red:#f85149;
   --gold:#f0b90b;--blue:#58a6ff;--accent:#238636;
 }
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;width:100vw}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;width:100vw;-webkit-overflow-scrolling:touch;overscroll-behavior:none}
+html{overscroll-behavior:none}
 /* HEADER */
 .hdr{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--card);border-bottom:1px solid var(--border)}
 .hdr-logo{display:flex;align-items:center;gap:6px;font-size:16px;font-weight:700;color:var(--gold)}
@@ -413,8 +414,10 @@ function initChartOnce() {
     layout: {background:{color:'#0d1117'}, textColor:'#e6edf3', fontSize:11},
     grid: {vertLines:{color:'rgba(48,54,61,.5)'}, horzLines:{color:'rgba(48,54,61,.5)'}},
     crosshair: {mode: LightweightCharts.CrosshairMode.Normal},
-    timeScale: {timeVisible:true, secondsVisible:false, rightOffset:5, barSpacing:8, fixLeftEdge:false, fixRightEdge:false},
-    rightPriceScale: {borderVisible:false, autoScale:true}
+    timeScale: {timeVisible:true, secondsVisible:false, rightOffset:5, barSpacing:6, fixLeftEdge:false, fixRightEdge:false, shiftVisibleRangeOnNewBar:false},
+    rightPriceScale: {borderVisible:false, autoScale:true},
+    handleScale:{axisPressedMouseMove:{time:true,price:true},mouseWheel:true,pinch:true,resetDoubleTap:true},
+    handleScroll:{vertTouchDrag:true,horzTouchDrag:true,mouseWheel:true,pressedMouseMove:true}
   });
   candleSeries = chart.addCandlestickSeries({
     upColor:'#3fb950', downColor:'#f85149',
@@ -588,6 +591,59 @@ function jumpToLive() {
   if (chart) { chart.timeScale().scrollToRealTime(); toast('Jumped to live'); }
 }
 
+// ===== LIVE CANDLE SIMULATION =====
+function simulateLiveCandle() {
+  if (!S._lastCandles || S._lastCandles.length === 0 || !candleSeries || S.page !== 'chart') return;
+  var last = S._lastCandles[S._lastCandles.length - 1];
+  if (!last) return;
+  var p = S.prices[S.cur.sym];
+  if (!p || !p.last) return;
+  
+  // Use real price from API as close
+  var newClose = parseFloat(p.last);
+  if (newClose <= 0) return;
+  
+  // Update high/low
+  if (newClose > last.high) last.high = newClose;
+  if (newClose < last.low) last.low = newClose;
+  last.close = newClose;
+  
+  // Update chart
+  if (typeof requestAnimationFrame !== 'undefined') {
+    requestAnimationFrame(function() {
+      candleSeries.update({time:last.time, open:last.open, high:last.high, low:last.low, close:last.close});
+      volumeSeries.update({time:last.time, value:last.volume + Math.random() * 10, color:last.close >= last.open ? 'rgba(63,185,80,.3)' : 'rgba(248,81,73,.3)'});
+    });
+  } else {
+    candleSeries.update(last);
+  }
+}
+
+// ===== CHECK NEW CANDLE =====
+function checkNewCandle() {
+  if (!S._lastCandles || S._lastCandles.length === 0 || !candleSeries || S.page !== 'chart') return;
+  var last = S._lastCandles[S._lastCandles.length - 1];
+  if (!last) return;
+  var p = S.prices[S.cur.sym];
+  if (!p || !p.time) return;
+  
+  var lastCandleTime = last.time;
+  var serverTime = Math.floor(new Date(p.time).getTime() / 1000);
+  var tfSecs = {'1m':60,'5m':300,'15m':900,'1H':3600,'4H':14400,'1D':86400};
+  var secs = tfSecs[S.tf] || 900;
+  var currentCandleStart = Math.floor(serverTime / secs) * secs;
+  
+  // New candle detected
+  if (currentCandleStart > lastCandleTime) {
+    var newClose = parseFloat(p.last);
+    if (newClose <= 0) return;
+    var newCandle = {time:currentCandleStart, open:last.close, high:newClose, low:newClose, close:newClose, volume:0};
+    S._lastCandles.push(newCandle);
+    candleSeries.update(newCandle);
+    volumeSeries.update({time:currentCandleStart, value:0, color:'rgba(63,185,80,.3)'});
+  }
+}
+
 // ===== TIMEFRAME =====
 function buildTFBar() {
   var h = '';
@@ -699,6 +755,8 @@ function init() {
   connectOKXWS();
   pollTimer = setInterval(fetchAllPrices, 5000);
   setInterval(function(){if(S.page==='chart'&&S.cur)updateChartHeader()}, 3000);
+  setInterval(function(){if(S.page==='chart')simulateLiveCandle()}, 1000); // Live candle tick every 1s
+  setInterval(function(){if(S.page==='chart')checkNewCandle()}, 2000); // Check new candle every 2s
   document.getElementById('hdrSymBtn').addEventListener('click', openSymModal);
   document.getElementById('symOverlay').addEventListener('click', function(e){if(e.target===this)closeSymModal()});
   document.getElementById('alertOverlay').addEventListener('click', function(e){if(e.target===this)closeAlertModal()});
