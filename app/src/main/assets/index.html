@@ -272,7 +272,7 @@ function goChart(sym){
   showPg('CH');
 }
 function fetchPrices(){
-  const oSyms=SYMBOLS.filter(s=>s.cat!=='CRYPTO').map(s=>s.sym);
+  const oSyms=SYMBOLS.map(s=>s.sym);
   if(!oSyms.length) return;
   fetch(PROXY+'/price?symbols='+oSyms.join(',')).then(r=>r.json()).then(d=>{
     if(!d.prices) return;
