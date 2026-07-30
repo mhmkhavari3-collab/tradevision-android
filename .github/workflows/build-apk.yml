@@ -63,9 +63,25 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew assembleRelease --no-daemon --stacktrace 2>&1
+        run: ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee build-output.txt; exit ${PIPESTATUS[0]}
+
+      - name: Save build log
+        if: always()
+        run: |
+          echo "=== BUILD LOG TAIL ==="
+          tail -100 build-output.txt || echo "No build output"
+          cp build-output.txt /tmp/build-log.txt 2>/dev/null || true
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build-output.txt
+          retention-days: 1
 
       - name: Find APK
+        if: success()
         run: ls -la app/build/outputs/apk/release/ 2>/dev/null || echo "No APK found"
 
       - name: Upload Release APK
