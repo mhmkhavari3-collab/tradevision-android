@@ -112,7 +112,20 @@ button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
     </div>
   </div>
 
-  <div id="pgAL" class="page"><div class="placeholder">🔔 Alerts<br>Coming soon</div></div>
+  <div id="pgAL" class="page" style="padding:16px;overflow-y:auto">
+  <div style="font-size:18px;font-weight:700;margin-bottom:12px">🔔 Price Alarms</div>
+  <div style="background:#131722;padding:12px;border-radius:10px;margin-bottom:12px">
+    <div style="font-size:13px;color:#787b86;margin-bottom:8px">Set Price Alert</div>
+    <select id="alSym" style="width:100%;padding:10px;background:#1e222d;border:none;color:#fff;border-radius:8px;margin-bottom:8px"></select>
+    <input id="alPrice" type="number" step="any" placeholder="Target Price" style="width:100%;padding:10px;margin-bottom:8px;background:#1e222d;border:none;color:#fff;border-radius:8px">
+    <select id="alDir" style="width:100%;padding:10px;background:#1e222d;border:none;color:#fff;border-radius:8px;margin-bottom:8px">
+      <option value="above">Price >= Target (above)</option>
+      <option value="below">Price <= Target (below)</option>
+    </select>
+    <button onclick="addAlarm()" style="width:100%;padding:12px;background:#2196f3;color:#fff;border:none;border-radius:8px;font-size:14px">➕ Set Alarm</button>
+  </div>
+  <div id="alList" style="color:#fff"></div>
+</div>
   <div id="pgST" class="page" style="padding:16px;overflow-y:auto">
   <div style="font-size:18px;font-weight:700;margin-bottom:16px">⚙️ Settings</div>
   
@@ -202,6 +215,7 @@ const TIMEFRAMES = [{id:'1m',l:'1m'},{id:'5m',l:'5m'},{id:'15m',l:'15m'},{id:'30
 
 // Timeframe seconds for proper candle aggregation
 const TF_SECONDS = {'1m':60,'5m':300,'15m':900,'30m':1800,'1h':3600,'4h':14400,'1d':86400,'1W':604800,'1M':2592000};
+const OKX_BAR = {'1m':'1m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','4h':'4H','1d':'1D','1W':'1W','1M':'1M'};
 
 /* ============ STATE ============ */
 let cur = SYMBOLS[0], CURRENT_TF = '15m';
@@ -302,12 +316,13 @@ function connectWS(sym){
     supabaseChannel.on('broadcast', { event: 'tick' }, ({ payload }) => {
       if(payload && payload.price != null){
         const s = payload.symbol || 'XAUUSD';
-        console.log('[Supabase TICK]', s, payload.price, 'cur=', cur.sym);
-        if(s === cur.sym){
-          prices[s] = { mid: payload.price, time: payload.timestamp || Date.now() };
+        prices[s] = { mid: payload.price, time: payload.timestamp || Date.now() };
+        if(s === cur.sym && candleSeries && candles.length){
           updateLiveCandle(payload.price);
           updateChHeader();
         }
+        if(page==='WL') buildWL();
+        checkAlarms();
       }
     });
     
@@ -386,7 +401,7 @@ async function loadCandles(sym,tf){
   try{
     let data;
     if(isCrypto){
-      const r=await fetch('https://www.okx.com/api/v5/market/candles?instId='+sym+'&bar='+tf+'&limit=300');
+      const r=await fetch('https://www.okx.com/api/v5/market/candles?instId='+sym+'&bar='+(OKX_BAR[tf]||tf)+'&limit=300');
       data=await r.json();
       if(mySeq!==seqId||!data||!data.data) return;
       candles=data.data.reverse().map(c=>({time:parseInt(c[0])/1000,open:parseFloat(c[1]),high:parseFloat(c[2]),low:parseFloat(c[3]),close:parseFloat(c[4]),volume:parseFloat(c[5])})).filter((c,i,a)=>i===0||a[i-1].time!==c.time);
@@ -555,6 +570,93 @@ function resetAllUrls(){
   document.getElementById('serverUrl').value='';
   document.getElementById('serverStatus').innerHTML='<span style="color:#26a69a">✅ Reset to defaults</span>';
   toast('All URLs reset!');
+}
+
+/* ============ ALARM SYSTEM ============ */
+let alarms = JSON.parse(localStorage.getItem('tv_alarms') || '[]');
+let triggeredAlarms = new Set(JSON.parse(localStorage.getItem('tv_triggered_alarms') || '[]'));
+
+function populateAlarmSymSelect(){
+  const sel = document.getElementById('alSym');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">Select Symbol</option>';
+  SYMBOLS.forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s.sym;
+    opt.textContent = s.display;
+    sel.appendChild(opt);
+  });
+}
+
+function addAlarm(){
+  const sym = document.getElementById('alSym').value;
+  const price = parseFloat(document.getElementById('alPrice').value);
+  const dir = document.getElementById('alDir').value;
+  if(!sym || !price || isNaN(price)){ toast('Fill symbol and price'); return; }
+  const alarm = {sym, price, dir, created: Date.now(), active: true};
+  alarms.forEach(a => { if(a.sym === sym && Math.abs(a.price - price) < 0.0001) a.active = false; });
+  alarms.push(alarm);
+  saveAlarms();
+  renderAlarms();
+  toast('Alarm set: ' + sym + ' ' + (dir==='above'?'⬆':'⬇') + ' ' + price);
+  document.getElementById('alPrice').value = '';
+}
+
+function removeAlarm(idx){
+  alarms.splice(idx, 1);
+  saveAlarms();
+  renderAlarms();
+}
+
+function saveAlarms(){
+  localStorage.setItem('tv_alarms', JSON.stringify(alarms));
+}
+
+function renderAlarms(){
+  const el = document.getElementById('alList');
+  if(!el) return;
+  if(!alarms.length){ el.innerHTML = '<div style="color:#787b86;margin-top:12px">No active alarms</div>'; return; }
+  el.innerHTML = alarms.map((a, i) => {
+    const sym = SYMBOLS.find(s=>s.sym===a.sym);
+    const symName = sym ? sym.display : a.sym;
+    const p = prices[a.sym];
+    const current = p && p.mid != null ? fp(p.mid, sym ? sym.prec : 5) : '--';
+    return '<div style="background:#131722;padding:10px;margin-bottom:6px;border-radius:8px;display:flex;justify-content:space-between;align-items:center">'+
+      '<div style="flex:1"><b>'+symName+'</b> '+(a.dir==='above'?'⬆':'⬇')+' '+fp(a.price, sym?sym.prec:5)+'<br><small style="color:#787b86">Current: '+current+'</small></div>'+
+      '<button onclick="removeAlarm('+i+')" style="padding:4px 8px;background:#ef5350;color:#fff;border:none;border-radius:6px;font-size:11px">✕</button>'+
+      '</div>';
+  }).join('');
+}
+
+function checkAlarms(){
+  let changed = false;
+  alarms.forEach(a => {
+    if(!a.active) return;
+    const p = prices[a.sym];
+    if(!p || p.mid == null) return;
+    const price = Number(p.mid);
+    let hit = false;
+    if(a.dir === 'above' && price >= a.price) hit = true;
+    if(a.dir === 'below' && price <= a.price) hit = true;
+    if(hit){
+      a.active = false;
+      changed = true;
+      const sym = SYMBOLS.find(s=>s.sym===a.sym);
+      const symName = sym ? sym.display : a.sym;
+      const msg = symName + ' ' + (a.dir==='above'?'reached above':'dropped below') + ' ' + a.price;
+      // Android notification
+      try{ if(typeof Android !== 'undefined') Android.showNotification('TradeVision Alarm', msg); }catch(e){}
+      // Web Notification API
+      if(typeof Notification !== 'undefined' && Notification.permission === 'granted'){
+        new Notification('TradeVision', {body: msg, icon: '🔔', tag: 'tv_alarm_'+a.sym});
+      }
+      toast('🔔 ' + msg);
+    }
+  });
+  if(changed){
+    saveAlarms();
+    renderAlarms();
+  }
 }
 
 /* ============ INIT ============ */
