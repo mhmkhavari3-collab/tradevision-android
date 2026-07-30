@@ -6,6 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>TradeVision</title>
+<!-- Supabase Realtime for live market data -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{position:fixed;width:100%;height:100%;overflow:hidden;overscroll-behavior:none;background:#0a0e14;color:#c5c8c9;font-family:-apple-system,BlinkMacSystemFont,sans-serif;user-select:none;touch-action:none}
@@ -67,6 +69,12 @@ button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
 ::-webkit-scrollbar{width:4px;height:4px}
 ::-webkit-scrollbar-track{background:#0a0e14}
 ::-webkit-scrollbar-thumb{background:#1e222d;border-radius:2px}
+
+#chSec{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#ch{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.chart-wrap{flex:1;min-height:0;position:relative}
+#chartEl{width:100%;height:100%}
+.wl-price{font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -105,7 +113,48 @@ button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
   </div>
 
   <div id="pgAL" class="page"><div class="placeholder">🔔 Alerts<br>Coming soon</div></div>
-  <div id="pgST" class="page"><div class="placeholder">⚙️ Settings<br>v11.0 • LWC + v8 Logic</div></div>
+  <div id="pgST" class="page" style="padding:16px;overflow-y:auto">
+  <div style="font-size:18px;font-weight:700;margin-bottom:16px">⚙️ Settings</div>
+  
+  <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">📡 Realtime Server</div>
+    <div style="font-size:12px;color:#555;margin-bottom:8px">Supabase Realtime URL. Change provider without new APK.</div>
+    <input id="realtimeUrl" type="url" placeholder="https://mbocedojtnvyfhlclnpm.supabase.co" 
+      style="width:100%;background:#0a0e14;border:1px solid #333;border-radius:8px;padding:12px;color:#fff;font-size:14px;box-sizing:border-box">
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button onclick="saveRealtimeUrl()" style="flex:1;background:#26a69a;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">💾 Save</button>
+      <button onclick="testRealtimeUrl()" style="flex:1;background:#333;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">🧪 Test</button>
+    </div>
+    <div id="realtimeStatus" style="font-size:12px;margin-top:8px;color:#787b86"></div>
+  </div>
+  
+  <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">🔌 REST API Proxy</div>
+    <div style="font-size:12px;color:#555;margin-bottom:8px">Worker/Backend URL for history & prices.</div>
+    <input id="serverUrl" type="url" placeholder="https://xxx.up.railway.app" 
+      style="width:100%;background:#0a0e14;border:1px solid #333;border-radius:8px;padding:12px;color:#fff;font-size:14px;box-sizing:border-box">
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button onclick="saveServerUrl()" style="flex:1;background:#26a69a;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">💾 Save</button>
+      <button onclick="testServerUrl()" style="flex:1;background:#333;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">🧪 Test</button>
+    </div>
+    <div id="serverStatus" style="font-size:12px;margin-top:8px;color:#787b86"></div>
+  </div>
+  
+  <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">ℹ️ About</div>
+    <div style="font-size:12px;color:#787b86">
+      TradeVision v11e<br>
+      Engine: Lightweight Charts<br>
+      Data: OANDA + OKX via Supabase<br>
+      <span id="currentServerDisplay" style="color:#26a69a"></span>
+    </div>
+  </div>
+  
+  <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">🔄 Reset</div>
+    <button onclick="resetAllUrls()" style="width:100%;background:#ef5350;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">Reset to Defaults</button>
+  </div>
+</div>
 
   <div class="nav">
     <div class="nav-btn active" onclick="showPg('WL')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>Watchlist</div>
@@ -124,8 +173,12 @@ eval(LWC_SCRIPT);
 // ====================================================
 
 /* ============ CONFIG ============ */
-const PROXY = 'https://market-stream.mamali163345.workers.dev';
+let PROXY = 'https://market-stream.mamali163345.workers.dev';
 const WS_BASE = PROXY.replace('https://','wss://');
+
+// ============ SUPABASE REALTIME CONFIG ============
+const SUPABASE_URL = 'https://mbocedojtnvyfhlclnpm.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ib2NlZG9qdG52eWZobGNsbnBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzOTMwNDcsImV4cCI6MjEwMDk2OTA0N30.1m8MCVAHHFCDd4QkspXf959XTulvRYJEBav1CPg5Gcs';
 const SYMBOLS = [
   {sym:'XAUUSD',name:'Gold',display:'XAU/USD',color:'#f0b90b',cat:'METALS',prec:2,minMove:0.01},
   {sym:'XAGUSD',name:'Silver',display:'XAG/USD',color:'#c0c0c0',cat:'METALS',prec:3,minMove:0.001},
@@ -145,7 +198,10 @@ const SYMBOLS = [
   {sym:'ETH-USDT',name:'Ethereum',display:'ETH/USDT',color:'#627eea',cat:'CRYPTO',prec:2,minMove:0.01},
   {sym:'SOL-USDT',name:'Solana',display:'SOL/USDT',color:'#9945ff',cat:'CRYPTO',prec:2,minMove:0.01},
 ];
-const TIMEFRAMES = [{id:'1m',l:'1m'},{id:'5m',l:'5m'},{id:'15m',l:'15m'},{id:'30m',l:'30m'},{id:'1h',l:'1h'},{id:'4h',l:'4h'},{id:'1d',l:'1d'}];
+const TIMEFRAMES = [{id:'1m',l:'1m'},{id:'5m',l:'5m'},{id:'15m',l:'15m'},{id:'30m',l:'30m'},{id:'1h',l:'1h'},{id:'4h',l:'4h'},{id:'1d',l:'1d'},{id:'1W',l:'1W'},{id:'1M',l:'1M'}];
+
+// Timeframe seconds for proper candle aggregation
+const TF_SECONDS = {'1m':60,'5m':300,'15m':900,'30m':1800,'1h':3600,'4h':14400,'1d':86400,'1W':604800,'1M':2592000};
 
 /* ============ STATE ============ */
 let cur = SYMBOLS[0], CURRENT_TF = '15m';
@@ -168,7 +224,14 @@ function showPg(n){
   document.querySelectorAll('.nav-btn').forEach((b,i)=>b.className=['WL','CH','AL','ST'].indexOf(n)===i?'nav-btn active':'nav-btn');
   if(n==='CH'){
     document.getElementById('hdrSym').textContent=cur.display;
-    initChart(); loadCandles(cur.sym,CURRENT_TF); connectWS(cur.sym); startPricePoll();
+    initChart(); 
+    loadCandles(cur.sym, CURRENT_TF).then(() => {
+      // Apply precision for current symbol
+      applyPrecision();
+      // Start live stream ONLY after history loaded
+      connectWS(cur.sym);
+    });
+    startPricePoll();
   }else{
     disconnectWS(); stopPricePoll(); stopChartPoll();
   }
@@ -189,7 +252,25 @@ function buildWL(){
   });
   document.getElementById('wlList').innerHTML=h;
 }
-function goChart(sym){const s=SYMBOLS.find(x=>x.sym===sym);if(s){cur=s;document.getElementById('hdrSym').textContent=s.display;showPg('CH')}}
+function goChart(sym){
+  const s=SYMBOLS.find(x=>x.sym===sym);
+  if(!s) return;
+  
+  // Symbol switch: disconnect old stream
+  disconnectWS();
+  stopChartPoll();
+  
+  // Clear candle state
+  candles = [];
+  if(candleSeries) candleSeries.setData([]);
+  
+  // Update current symbol
+  cur = s;
+  document.getElementById('hdrSym').textContent = s.display;
+  applyPrecision();  // Apply new symbol's precision
+  
+  showPg('CH');
+}
 function fetchPrices(){
   const oSyms=SYMBOLS.filter(s=>s.cat!=='CRYPTO').map(s=>s.sym);
   if(!oSyms.length) return;
@@ -203,20 +284,54 @@ function fetchPrices(){
 function startPricePoll(){stopPricePoll();fetchPrices();pricePollTimer=setInterval(fetchPrices,5000)}
 function stopPricePoll(){if(pricePollTimer){clearInterval(pricePollTimer);pricePollTimer=null}}
 
-/* ============ WEBSOCKET ============ */
+/* ============ SUPABASE REALTIME ============ */
+let supabaseChannel = null;
+
 function connectWS(sym){
   disconnectWS();
-  if(!sym||cur.cat==='CRYPTO') return;
-  const url=WS_BASE+'/stream?symbol='+sym;
+  if(!sym) return;
+  
+  // Use realtime URL from config (Supabase)
+  const rtUrl = getRealtimeUrl();
+  const rtKey = SUPABASE_KEY;
+  
   try{
-    wsConn=new WebSocket(url);
-    wsConn.onopen=()=>{setWSStatus(true);console.log('[WS CONNECTED]',sym)};
-    wsConn.onmessage=e=>{try{const d=JSON.parse(e.data);if(d.type==='tick'){console.log('[TICK]',d.symbol,d.mid.toFixed(cur.prec));prices[d.symbol]={mid:d.mid,bid:d.bid,ask:d.ask,time:d.time};updateLiveCandle(d.mid);updateChHeader();}}catch(x){}};
-    wsConn.onclose=()=>{setWSStatus(false);console.log('[WS CLOSED] reconnecting...');wsReconnectTimer=setTimeout(()=>{if(page==='CH')connectWS(sym)},3000)};
-    wsConn.onerror=()=>{};
-  }catch(e){}
+    const supabaseClient = supabase.createClient(rtUrl, rtKey);
+    supabaseChannel = supabaseClient.channel('market-ticks');
+    
+    supabaseChannel.on('broadcast', { event: 'tick' }, ({ payload }) => {
+      if(payload && payload.price != null){
+        const s = payload.symbol || 'XAUUSD';
+        console.log('[Supabase TICK]', s, payload.price, 'cur=', cur.sym);
+        if(s === cur.sym){
+          prices[s] = { mid: payload.price, time: payload.timestamp || Date.now() };
+          updateLiveCandle(payload.price);
+          updateChHeader();
+        }
+      }
+    });
+    
+    supabaseChannel.subscribe((status) => {
+      console.log('[Supabase] Channel status:', status);
+      setWSStatus(status === 'SUBSCRIBED');
+    });
+    
+    console.log('[Supabase] Realtime connected for', sym, 'via', rtUrl);
+  }catch(e){
+    console.error('[Supabase] Init error:', e);
+    setWSStatus(false);
+  }
 }
-function disconnectWS(){if(wsConn){try{wsConn.close()}catch(e){}wsConn=null}if(wsReconnectTimer){clearTimeout(wsReconnectTimer);wsReconnectTimer=null}setWSStatus(false)}
+
+function disconnectWS(){
+  if(supabaseChannel){
+    try{ supabaseChannel.unsubscribe(); }catch(e){}
+    supabaseChannel = null;
+  }
+  if(wsReconnectTimer){ clearTimeout(wsReconnectTimer); wsReconnectTimer=null; }
+  setWSStatus(false);
+}
+
 function setWSStatus(connected){
   const live=document.getElementById('chLive');
   if(connected){live.style.display=''}else{live.style.display='none'}
@@ -227,13 +342,13 @@ function initChart(){
   if(chart) return; // Chart instance stays alive
   const el=document.getElementById('chartEl');
   chart=LightweightCharts.createChart(el,{
-    width:el.clientWidth,height:el.clientHeight||400,
+    width:el.clientWidth,height:el.clientHeight||400,autoSize:true,
     layout:{background:{color:'#0a0e14'},textColor:'#787b86',fontSize:11},
     grid:{vertLines:{color:'#1e222d'},horzLines:{color:'#1e222d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
     timeScale:{timeVisible:true,secondsVisible:false,rightOffset:5,barSpacing:6,fixLeftEdge:false,fixRightEdge:false,shiftVisibleRangeOnNewBar:false},
     rightPriceScale:{borderVisible:false,autoScale:true},
-    handleScroll:{vertTouchDrag:false,horzTouchDrag:true,mouseWheel:true,pressedMouseMove:true,horzDrag:true},
+    handleScroll:{vertTouchDrag:true,horzTouchDrag:true,mouseWheel:true,pressedMouseMove:true,horzDrag:true},
     handleScale:{axisPressedMouseMove:{time:true,price:true},mouseWheel:true,pinch:true,resetDoubleTap:true}
   });
   candleSeries=chart.addCandlestickSeries({
@@ -257,6 +372,11 @@ function initChart(){
 }
 function applyPrecision(){if(candleSeries&&cur)candleSeries.applyOptions({priceFormat:{type:'price',precision:cur.prec,minMove:cur.minMove}})}
 
+const OANDA_URL='https://api-fxtrade.oanda.com';
+const OANDA_TOK='0dcfea75f50aa3b19d0e8c4810a865f4-e23a605e060d62d2d3e3011d1156f124';
+const SYMS_INST={'XAUUSD':'XAU_USD','XAGUSD':'XAG_USD','WTI':'WTICO_USD','BRENT':'BCO_USD','EURUSD':'EUR_USD','GBPUSD':'GBP_USD','USDJPY':'USD_JPY','AUDUSD':'AUD_USD','USDCHF':'USD_CHF','USDCAD':'USD_CAD','NZDUSD':'NZD_USD','EURGBP':'EUR_GBP','EURJPY':'EUR_JPY','GBPJPY':'GBP_JPY','EURCHF':'EUR_CHF','EURCAD':'EUR_CAD','EURAUD':'EUR_AUD','EURNZD':'EUR_NZD','GBPAUD':'GBP_AUD','GBPCAD':'GBP_CAD','GBPCHF':'GBP_CHF','GBPNZD':'GBP_NZD','AUDCAD':'AUD_CAD','AUDCHF':'AUD_CHF','AUDJPY':'AUD_JPY','AUDNZD':'AUD_NZD','CADJPY':'CAD_JPY','CADCHF':'CAD_CHF','NZDJPY':'NZD_JPY','NZDCAD':'NZD_CAD','NZDCHF':'NZD_CHF','CHFJPY':'CHF_JPY'};
+const OANDA_TF={'1m':'M1','5m':'M5','15m':'M15','30m':'M30','1h':'H1','4h':'H4','1d':'D','1W':'W','1M':'M'};
+
 async function loadCandles(sym,tf){
   const mySeq=++seqId; candles=[];
   document.getElementById('loadInd').className='load-ind active';
@@ -271,18 +391,31 @@ async function loadCandles(sym,tf){
       if(mySeq!==seqId||!data||!data.data) return;
       candles=data.data.reverse().map(c=>({time:parseInt(c[0])/1000,open:parseFloat(c[1]),high:parseFloat(c[2]),low:parseFloat(c[3]),close:parseFloat(c[4]),volume:parseFloat(c[5])})).filter((c,i,a)=>i===0||a[i-1].time!==c.time);
     }else{
-      const r=await fetch(PROXY+'/candles?symbol='+sym+'&timeframe='+tf+'&count=300');
-      data=await r.json();
-      if(mySeq!==seqId||!data||!data.candles) return;
-      candles=data.candles;
+      // Try Worker first, then direct OANDA
+      let got=false;
+      try{
+        const r=await fetch(PROXY+'/candles?symbol='+sym+'&timeframe='+tf+'&count=300');
+        if(r.ok){data=await r.json(); if(data.candles&&data.candles.length){candles=data.candles; got=true;}}
+      }catch(e){}
+      if(!got){
+        try{
+          const inst=SYMS_INST[sym];
+          const oTf=OANDA_TF[tf]||'M15';
+          const r=await fetch(OANDA_URL+'/v3/instruments/'+inst+'/candles?granularity='+oTf+'&price=M&count=300',{headers:{'Authorization':'Bearer '+OANDA_TOK}});
+          if(r.ok){data=await r.json(); candles=(data.candles||[]).map(c=>{const m=c.mid||{};return{time:Math.floor(new Date(c.time).getTime()/1000),open:+m.o,high:+m.h,low:+m.l,close:+m.c,volume:c.volume||0};}).filter((c,i,a)=>i===0||a[i-1].time!==c.time);}
+        }catch(e){}
+      }
     }
     document.getElementById('loadInd').className='load-ind';
+    if(mySeq!==seqId) return;
     if(!candles.length){generatePlaceholderCandles();}
     setChartData();
-    if(page==='CH') startChartPoll();
+    applyPrecision();  // Apply precision for current symbol
+    return true;
   }catch(e){
     document.getElementById('loadInd').className='load-ind';
     document.getElementById('errOverlay').className='err-overlay';
+    return false;
   }
 }
 
@@ -307,21 +440,28 @@ function updateLiveCandle(price){
   if(!candleSeries||!candles.length||price<=0) return;
   const last=candles[candles.length-1];
   const now=Math.floor(Date.now()/1000);
-  const tfSec={'1m':60,'5m':300,'15m':900,'30m':1800,'1h':3600,'4h':14400,'1d':86400}[CURRENT_TF]||900;
-  const curStart=Math.floor(now/tfSec)*tfSec;
   
-  if(curStart>last.time){
-    // New candle - append
+  // Proper timeframe aggregation - each TF has its own bucket
+  const tfSec = TF_SECONDS[CURRENT_TF] || 900;
+  const curStart = Math.floor(now / tfSec) * tfSec;
+  
+  // Sanity check: reject extreme price spikes (>5% from last close)
+  if(last.close && Math.abs(price - last.close) / last.close > 0.05){
+    console.warn('[updateLiveCandle] Price spike rejected:', price, 'vs', last.close);
+    return;
+  }
+  
+  if(curStart > last.time){
+    // New candle - create fresh object
     const nc={time:curStart,open:last.close,high:price,low:price,close:price,volume:0};
     candles.push(nc);
-    candleSeries.update(nc); // update() not setData()
+    candleSeries.update(nc);
     if(candles.length>1000) candles.shift();
   }else{
-    // Update current candle
-    if(price>last.high) last.high=price;
-    if(price<last.low) last.low=price;
-    last.close=price;
-    candleSeries.update({time:last.time,open:last.open,high:last.high,low:last.low,close:last.close}); // update() not setData()
+    // Update current candle - create fresh object (don't mutate reference)
+    const updated={time:last.time,open:last.open,high:Math.max(last.high,price),low:Math.min(last.low,price),close:price};
+    candles[candles.length-1]=updated;
+    candleSeries.update(updated);
   }
   updateChHeader(); updateOHLC();
 }
@@ -340,7 +480,7 @@ function updateChHeader(){
   document.getElementById('hdrPrice').textContent=fp(last,cur.prec); document.getElementById('hdrPrice').style.color=chg>=0?'#26a69a':'#ef5350';
 }
 
-function startChartPoll(){stopChartPoll();chartPollTimer=setInterval(()=>{if(page==='CH')loadCandles(cur.sym,CURRENT_TF)},30000)}
+function startChartPoll(){/* REMOVED: 30s reload was corrupting chart */}
 function stopChartPoll(){if(chartPollTimer){clearInterval(chartPollTimer);chartPollTimer=null}}
 
 async function loadMoreHistory(){
@@ -371,11 +511,65 @@ function retryChart(){loadCandles(cur.sym,CURRENT_TF)}
 
 /* ============ TIMEFRAME ============ */
 function buildTFBar(){let h='';TIMEFRAMES.forEach(t=>{h+='<div class="tf-btn'+(t.id===CURRENT_TF?' active':'')+'" data-tf="'+t.id+'" onclick="setTF(\''+t.id+'\')">'+t.l+'</div>'});document.getElementById('tfBar').innerHTML=h}
-function setTF(tf){CURRENT_TF=tf;buildTFBar();loadCandles(cur.sym,tf);if(page==='CH')connectWS(cur.sym)}
+function setTF(tf){
+  CURRENT_TF=tf; 
+  buildTFBar();
+  // Clear chart and reload for new timeframe
+  if(chart && candleSeries){
+    candleSeries.setData([]);  // Clear old candles
+    candles = [];
+  }
+  loadCandles(cur.sym, tf).then(() => {
+    if(page==='CH') connectWS(cur.sym);
+  });
+}
+
+/* ============ SETTINGS ============ */
+function getServerUrl(){
+  return localStorage.getItem('tv_server_url') || 'https://market-stream.mamali163345.workers.dev';
+}
+function getRealtimeUrl(){
+  return localStorage.getItem('tv_realtime_url') || 'https://mbocedojtnvyfhlclnpm.supabase.co';
+}
+function saveServerUrl(){
+  const url=document.getElementById('serverUrl').value.trim();
+  if(!url){toast('Enter a URL');return;}
+  try{new URL(url);}catch(e){toast('Invalid URL');return;}
+  localStorage.setItem('tv_server_url', url);
+  PROXY=url;
+  document.getElementById('serverStatus').innerHTML='<span style="color:#26a69a">✅ Saved! REST: '+url+'</span>';
+  toast('REST URL saved!');
+}
+function testServerUrl(){
+  const url=document.getElementById('serverUrl').value.trim()||getServerUrl();
+  document.getElementById('serverStatus').innerHTML='<span style="color:#f0b90b">⏳ Testing...</span>';
+  fetch(url+'/health',{signal:AbortSignal.timeout(5000)})
+    .then(r=>r.json())
+    .then(d=>{document.getElementById('serverStatus').innerHTML='<span style="color:#26a69a">✅ Server OK: '+JSON.stringify(d)+'</span>';})
+    .catch(e=>{document.getElementById('serverStatus').innerHTML='<span style="color:#ef5350">❌ Failed: '+e.message+'</span>';});
+}
+function resetAllUrls(){
+  localStorage.removeItem('tv_server_url');
+  localStorage.removeItem('tv_realtime_url');
+  PROXY='https://market-stream.mamali163345.workers.dev';
+  document.getElementById('serverUrl').value='';
+  document.getElementById('serverStatus').innerHTML='<span style="color:#26a69a">✅ Reset to defaults</span>';
+  toast('All URLs reset!');
+}
 
 /* ============ INIT ============ */
 function init(){
-  buildWL(); buildTFBar(); fetchPrices(); startPricePoll();
+  // Load saved URLs (REST + Realtime)
+  PROXY=getServerUrl();
+  document.getElementById('serverUrl').value=PROXY==='https://market-stream.mamali163345.workers.dev'?'':PROXY;
+  document.getElementById('currentServerDisplay').textContent='REST: '+PROXY+' | RT: '+getRealtimeUrl();
+  
+  // UI FIRST - buttons work immediately
+  buildWL(); buildTFBar();
+  
+  // Network LAST - isolated from UI
+  try{fetchPrices(); startPricePoll();}catch(e){}
+  
   history.pushState(null,'',location.href);
   window.addEventListener('popstate',()=>history.pushState(null,'',location.href));
   document.addEventListener('touchmove',e=>{if(e.target===document.body||e.target===document.getElementById('app'))e.preventDefault()},{passive:false});
