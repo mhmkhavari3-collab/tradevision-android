@@ -60,8 +60,9 @@ class MainActivity : AppCompatActivity() {
         
         // WebChromeClient for console.log
         webView.webChromeClient = object : WebChromeClient() {
-            override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage) {
+            override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage): Boolean {
                 Log.d(TAG, "[JS] ${consoleMessage.message()} (${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})")
+                return true
             }
         }
         
