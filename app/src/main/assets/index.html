@@ -406,14 +406,8 @@ async function loadCandles(sym,tf){
       if(mySeq!==seqId||!data||!data.data) return;
       candles=data.data.reverse().map(c=>({time:parseInt(c[0])/1000,open:parseFloat(c[1]),high:parseFloat(c[2]),low:parseFloat(c[3]),close:parseFloat(c[4]),volume:parseFloat(c[5])})).filter((c,i,a)=>i===0||a[i-1].time!==c.time);
     }else{
-      // Try Worker first, then direct OANDA
-      let got=false;
+      // Direct OANDA (bypasses unreliable Cloudflare Worker)
       try{
-        const r=await fetch(PROXY+'/candles?symbol='+sym+'&timeframe='+tf+'&count=300');
-        if(r.ok){data=await r.json(); if(data.candles&&data.candles.length){candles=data.candles; got=true;}}
-      }catch(e){}
-      if(!got){
-        try{
           const inst=SYMS_INST[sym];
           const oTf=OANDA_TF[tf]||'M15';
           const r=await fetch(OANDA_URL+'/v3/instruments/'+inst+'/candles?granularity='+oTf+'&price=M&count=300',{headers:{'Authorization':'Bearer '+OANDA_TOK}});
