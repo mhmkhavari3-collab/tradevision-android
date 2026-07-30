@@ -57,6 +57,9 @@ jobs:
           fi
           ls -la app/keystore/release.jks
 
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
       - name: Build Debug APK
         run: ./gradlew assembleDebug --no-daemon
 
