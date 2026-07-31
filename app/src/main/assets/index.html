@@ -391,12 +391,20 @@ async function loadCandles(sym,tf){
       if(mySeq!==seqId||!data||!data.data) return;
       candles=data.data.reverse().map(c=>({time:parseInt(c[0])/1000,open:parseFloat(c[1]),high:parseFloat(c[2]),low:parseFloat(c[3]),close:parseFloat(c[4]),volume:parseFloat(c[5])})).filter((c,i,a)=>i===0||a[i-1].time!==c.time);
     }else{
-      // Try Worker first, then direct OANDA
       let got=false;
+      // === PHASE A: Try Supabase REST first ===
       try{
-        const r=await fetch(PROXY+'/candles?symbol='+sym+'&timeframe='+tf+'&count=300');
-        if(r.ok){data=await r.json(); if(data.candles&&data.candles.length){candles=data.candles; got=true;}}
-      }catch(e){}
+        const dbSym=sym.replace('-USDT','').replace('USDT','');
+        const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dbSym+'&timeframe=eq.'+tf+'&order=time.asc&limit=300',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+        if(r.ok){data=await r.json(); if(data&&data.length){candles=data.map(c=>({time:c.time,open:+c.open,high:+c.high,low:+c.low,close:+c.close,volume:c.volume||0})); got=true; console.log('[loadCandles] Supabase hit:',sym,tf,candles.length);}}
+      }catch(e){console.log('[loadCandles] Supabase miss:',e.message);}
+      // === Fallback: Worker then OANDA ===
+      if(!got){
+        try{
+          const r=await fetch(PROXY+'/candles?symbol='+sym+'&timeframe='+tf+'&count=300');
+          if(r.ok){data=await r.json(); if(data.candles&&data.candles.length){candles=data.candles; got=true;}}
+        }catch(e){}
+      }
       if(!got){
         try{
           const inst=SYMS_INST[sym];
