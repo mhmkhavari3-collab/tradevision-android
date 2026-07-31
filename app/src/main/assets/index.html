@@ -114,37 +114,47 @@ button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
 
   <div id="pgAL" class="page"><div class="placeholder">🔔 Alerts<br>Coming soon</div></div>
   <div id="pgST" class="page" style="padding:16px;overflow-y:auto">
-    <div style="font-size:18px;font-weight:700;margin-bottom:16px">⚙️ Settings</div>
-
-    <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
-      <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">📡 Supabase Realtime</div>
-      <div style="font-size:12px;color:#555;margin-bottom:8px">Realtime URL for live ticks. Change without new APK.</div>
-      <input id="realtimeUrl" type="url" placeholder="https://mbocedojtnvyfhlclnpm.supabase.co"
-        style="width:100%;background:#0a0e14;border:1px solid #333;border-radius:8px;padding:12px;color:#fff;font-size:14px;box-sizing:border-box">
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button onclick="saveRealtimeUrl()" style="flex:1;background:#26a69a;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">💾 Save</button>
-        <button onclick="testRealtimeUrl()" style="flex:1;background:#333;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">🧪 Test</button>
-      </div>
-      <div id="realtimeStatus" style="font-size:12px;margin-top:8px;color:#787b86"></div>
+  <div style="font-size:18px;font-weight:700;margin-bottom:16px">⚙️ Settings</div>
+  
+  <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">📡 Realtime Server</div>
+    <div style="font-size:12px;color:#555;margin-bottom:8px">Supabase Realtime URL. Change provider without new APK.</div>
+    <input id="realtimeUrl" type="url" placeholder="https://mbocedojtnvyfhlclnpm.supabase.co" 
+      style="width:100%;background:#0a0e14;border:1px solid #333;border-radius:8px;padding:12px;color:#fff;font-size:14px;box-sizing:border-box">
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button onclick="saveRealtimeUrl()" style="flex:1;background:#26a69a;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">💾 Save</button>
+      <button onclick="testRealtimeUrl()" style="flex:1;background:#333;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">🧪 Test</button>
     </div>
-
-    <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
-      <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">ℹ️ About</div>
-      <div style="font-size:12px;color:#787b86">
-        TradeVision v1.0.18<br>
-        Engine: Lightweight Charts<br>
-        Data: Supabase REST + Realtime (Supabase-only)<br>
-        Commit: <span id="buildCommit"></span><br>
-        Build: <span id="buildTimestamp"></span><br>
-        <span id="currentServerDisplay" style="color:#26a69a"></span>
-      </div>
+    <div id="realtimeStatus" style="font-size:12px;margin-top:8px;color:#787b86"></div>
+  </div>
+  
+  <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">🔌 REST API Proxy</div>
+    <div style="font-size:12px;color:#555;margin-bottom:8px">Worker/Backend URL for history & prices.</div>
+    <input id="serverUrl" type="url" placeholder="https://xxx.up.railway.app" 
+      style="width:100%;background:#0a0e14;border:1px solid #333;border-radius:8px;padding:12px;color:#fff;font-size:14px;box-sizing:border-box">
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button onclick="saveServerUrl()" style="flex:1;background:#26a69a;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">💾 Save</button>
+      <button onclick="testServerUrl()" style="flex:1;background:#333;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">🧪 Test</button>
     </div>
-
-    <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
-      <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">🔄 Reset</div>
-      <button onclick="resetAllUrls()" style="width:100%;background:#ef5350;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">Reset to Defaults</button>
+    <div id="serverStatus" style="font-size:12px;margin-top:8px;color:#787b86"></div>
+  </div>
+  
+  <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">ℹ️ About</div>
+    <div style="font-size:12px;color:#787b86">
+      TradeVision v11e<br>
+      Engine: Lightweight Charts<br>
+      Data: OANDA + OKX via Supabase<br>
+      <span id="currentServerDisplay" style="color:#26a69a"></span>
     </div>
   </div>
+  
+  <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">🔄 Reset</div>
+    <button onclick="resetAllUrls()" style="width:100%;background:#ef5350;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">Reset to Defaults</button>
+  </div>
+</div>
 
   <div class="nav">
     <div class="nav-btn active" onclick="showPg('WL')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 9h6v6H9z"/></svg>Watchlist</div>
@@ -163,16 +173,12 @@ eval(LWC_SCRIPT);
 // ====================================================
 
 /* ============ CONFIG ============ */
-// Supabase-only architecture - NO direct OANDA/OKX/Worker in APK
-let PROXY = 'https://market-stream.mamali163345.workers.dev'; // legacy, not used
+let PROXY = 'https://market-stream.mamali163345.workers.dev';
 const WS_BASE = PROXY.replace('https://','wss://');
 
 // ============ SUPABASE REALTIME CONFIG ============
 const SUPABASE_URL = 'https://mbocedojtnvyfhlclnpm.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ib2NlZG9qdG52eWZobGNsbnBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzOTMwNDcsImV4cCI6MjEwMDk2OTA0N30.1m8MCVAHHFCDd4QkspXf959XTulvRYJEBav1CPg5Gcs';
-
-// Single source of truth for symbols - APK symbols used everywhere
-// DB symbols are derived via dbSym() / apkSymFromDB()
 const SYMBOLS = [
   {sym:'XAUUSD',name:'Gold',display:'XAU/USD',color:'#f0b90b',cat:'METALS',prec:2,minMove:0.01},
   {sym:'XAGUSD',name:'Silver',display:'XAG/USD',color:'#c0c0c0',cat:'METALS',prec:3,minMove:0.001},
@@ -202,28 +208,6 @@ let cur = SYMBOLS[0], CURRENT_TF = '15m';
 let prices = {}, candles = [], page = 'WL';
 let chart = null, candleSeries = null;
 let wsConn = null, wsReconnectTimer = null;
-let supabaseChannel = null;
-
-// === Symbol normalization: APK sym <-> DB sym (single source of truth) ===
-// APK symbols: XAUUSD, BTC-USDT, ETH-USDT, SOL-USDT
-// DB symbols:  XAUUSD, BTC, ETH, SOL
-const CRYPTO_DB_MAP = { 'BTC-USDT': 'BTC', 'ETH-USDT': 'ETH', 'SOL-USDT': 'SOL' };
-const CRYPTO_APK_MAP = { 'BTC': 'BTC-USDT', 'ETH': 'ETH-USDT', 'SOL': 'SOL-USDT' };
-
-function dbSym(apkSym) {
-  if (!apkSym) return apkSym;
-  return CRYPTO_DB_MAP[apkSym] || apkSym; // only crypto differs
-}
-function apkSymFromDB(dbSymbol) {
-  return CRYPTO_APK_MAP[dbSymbol] || dbSymbol; // only crypto differs
-}
-
-// Per-symbol last close for live candle update (prevents cross-symbol contamination)
-const lastCloseBySym = {};
-
-// Per-symbol realtime price cache (for Watchlist live updates)
-const realtimePrices = {};
-
 let pricePollTimer = null, chartPollTimer = null;
 let loadingMore = false, seqId = 0;
 
@@ -231,6 +215,31 @@ let loadingMore = false, seqId = 0;
 const fp = (v,p) => v!=null?Number(v).toFixed(p!=null?p:2):'—';
 const pct = v => v>=0?'+'+v.toFixed(2)+'%':v.toFixed(2)+'%';
 const toast = m => {const e=document.getElementById('toast');e.textContent=m;e.className='toast show';setTimeout(()=>e.className='toast',2000)};
+
+/* ============ SYMBOL NORMALIZATION ============ */
+const SYMBOL_MAP = {
+  'BTC-USDT': 'BTC', 'BTC': 'BTC',
+  'ETH-USDT': 'ETH', 'ETH': 'ETH',
+  'SOL-USDT': 'SOL', 'SOL': 'SOL',
+  'XAUUSD': 'XAUUSD', 'XAU_USD': 'XAUUSD',
+  'XAGUSD': 'XAGUSD', 'XAG_USD': 'XAGUSD',
+  'WTI': 'WTI', 'WTICO_USD': 'WTI',
+  'BRENT': 'BRENT', 'BCO_USD': 'BRENT',
+  'EURUSD': 'EURUSD', 'EUR_USD': 'EURUSD',
+  'GBPUSD': 'GBPUSD', 'GBP_USD': 'GBPUSD',
+  'USDJPY': 'USDJPY', 'USD_JPY': 'USDJPY',
+  'AUDUSD': 'AUDUSD', 'AUD_USD': 'AUDUSD',
+  'USDCHF': 'USDCHF', 'USD_CHF': 'USDCHF',
+  'USDCAD': 'USDCAD', 'USD_CAD': 'USDCAD',
+  'NZDUSD': 'NZDUSD', 'NZD_USD': 'NZDUSD',
+  'EURGBP': 'EURGBP', 'EUR_GBP': 'EURGBP',
+  'EURJPY': 'EURJPY', 'EUR_JPY': 'EURJPY',
+  'GBPJPY': 'GBPJPY', 'GBP_JPY': 'GBPJPY'
+};
+
+function normalizeSymbol(sym) {
+  return SYMBOL_MAP[sym] || sym;
+}
 
 /* ============ NAV ============ */
 function showPg(n){
@@ -260,13 +269,9 @@ function buildWL(){
   cats.forEach(cat=>{
     h+='<div class="wl-group">'+cat+'</div>';
     SYMBOLS.filter(s=>s.cat===cat).forEach(s=>{
-      // Use realtimePrices for live updates, fallback to prices, then to empty
-      const rp = realtimePrices[s.sym];
-      const p = rp || prices[s.sym] || {};
-      const last = p.mid != null ? Number(p.mid) : 0;
-      const open = p.open != null ? Number(p.open) : 0;
-      const chg = open > 0 ? ((last-open)/open*100) : 0;
-      const c = chg > 0 ? 'up' : chg < 0 ? 'dn' : '';
+      const p=prices[s.sym]||{}; const last=p.mid!=null?Number(p.mid):0;
+      const open=p.open!=null?Number(p.open):0; const chg=open>0?((last-open)/open*100):0;
+      const c=chg>0?'up':chg<0?'dn':'';
       h+='<div class="wl-row" onclick="goChart(\''+s.sym+'\')"><div class="wl-sym">'+s.display+'</div><div class="wl-name">'+s.name+'</div><div class="wl-price '+(c||'')+'">'+(last?fp(last,s.prec):'<span class="wl-loading">—</span>')+'</div><div class="wl-chg '+(c||'')+'">'+(last?pct(chg):'')+'</div></div>';
     });
   });
@@ -292,16 +297,11 @@ function goChart(sym){
   showPg('CH');
 }
 function fetchPrices(){
-  fetch(SUPABASE_URL+'/rest/v1/market_prices?select=symbol,price,bid,ask,open,updated_at&order=symbol.asc',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}}).then(r=>r.json()).then(d=>{
-    if(!d||!d.length) return;
-    d.forEach(p=>{
-      if(p.price==null) return;
-      const aKey = apkSymFromDB(p.symbol);
-      const priceData = {mid:p.price,bid:p.bid||p.price,ask:p.ask||p.price,open:p.open,time:p.updated_at?new Date(p.updated_at).getTime()/1000:Date.now()/1000};
-      // Store under BOTH DB key and APK key for compatibility
-      prices[p.symbol] = priceData;
-      prices[aKey] = priceData;
-    });
+  const oSyms=SYMBOLS.filter(s=>s.cat!=='CRYPTO').map(s=>s.sym);
+  if(!oSyms.length) return;
+  fetch(PROXY+'/price?symbols='+oSyms.join(',')).then(r=>r.json()).then(d=>{
+    if(!d.prices) return;
+    d.prices.forEach(p=>{if(p.mid!=null){const old=prices[p.symbol]||{};prices[p.symbol]={mid:p.mid,bid:p.bid,ask:p.ask,open:p.open||old.open,time:p.time}}});
     if(page==='WL') buildWL();
     if(page==='CH') updateChHeader();
   }).catch(()=>{});
@@ -310,49 +310,37 @@ function startPricePoll(){stopPricePoll();fetchPrices();pricePollTimer=setInterv
 function stopPricePoll(){if(pricePollTimer){clearInterval(pricePollTimer);pricePollTimer=null}}
 
 /* ============ SUPABASE REALTIME ============ */
+let supabaseChannel = null;
 
 function connectWS(sym){
   disconnectWS();
   if(!sym) return;
-
+  
   // Use realtime URL from config (Supabase)
   const rtUrl = getRealtimeUrl();
   const rtKey = SUPABASE_KEY;
-
+  
   try{
     const supabaseClient = supabase.createClient(rtUrl, rtKey);
     supabaseChannel = supabaseClient.channel('market-ticks');
-
+    
     supabaseChannel.on('broadcast', { event: 'tick' }, ({ payload }) => {
       if(payload && payload.price != null){
-        const rawSym = payload.symbol || 'XAUUSD';
-        const tickDbSym = dbSym(rawSym);  // normalize: BTC-USDT -> BTC
-        const tickApkSym = apkSymFromDB(tickDbSym); // back to APK sym
-
-        // Update realtime price cache for ALL symbols (Watchlist live)
-        realtimePrices[tickApkSym] = { 
-          mid: payload.price, 
-          time: payload.timestamp || Date.now() 
-        };
-        prices[tickApkSym] = realtimePrices[tickApkSym]; // sync to prices for UI
-
-        // Update Watchlist UI immediately if on WL page
-        if(page==='WL') buildWL();
-
-        // Update chart ONLY if this is the current symbol
-        const curDbSym = dbSym(cur.sym);
-        if(tickDbSym === curDbSym){
+        const s = payload.symbol || 'XAUUSD';
+        console.log('[Supabase TICK]', s, payload.price, 'cur=', cur.sym);
+        if(s === cur.sym){
+          prices[s] = { mid: payload.price, time: payload.timestamp || Date.now() };
           updateLiveCandle(payload.price);
           updateChHeader();
         }
       }
     });
-
+    
     supabaseChannel.subscribe((status) => {
       console.log('[Supabase] Channel status:', status);
       setWSStatus(status === 'SUBSCRIBED');
     });
-
+    
     console.log('[Supabase] Realtime connected for', sym, 'via', rtUrl);
   }catch(e){
     console.error('[Supabase] Init error:', e);
@@ -402,50 +390,55 @@ function initChart(){
   });
   chart.timeScale().subscribeVisibleLogicalRangeChange(r=>{
     if(!r||!candles||candles.length<2) return;
-    if(r.from<20) loadMoreHistory();
+    if(r.from<=10) loadMoreHistory();
   });
   var rt=null;new ResizeObserver(()=>{if(rt)clearTimeout(rt);rt=setTimeout(()=>{if(chart&&el)chart.applyOptions({width:el.clientWidth,height:el.clientHeight})},100)}).observe(el);
   applyPrecision();
 }
-
 function applyPrecision(){if(candleSeries&&cur)candleSeries.applyOptions({priceFormat:{type:'price',precision:cur.prec,minMove:cur.minMove}})}
+
+const OANDA_URL='https://api-fxtrade.oanda.com';
+const OANDA_TOK='0dcfea75f50aa3b19d0e8c4810a865f4-e23a605e060d62d2d3e3011d1156f124';
+const SYMS_INST={'XAUUSD':'XAU_USD','XAGUSD':'XAG_USD','WTI':'WTICO_USD','BRENT':'BCO_USD','EURUSD':'EUR_USD','GBPUSD':'GBP_USD','USDJPY':'USD_JPY','AUDUSD':'AUD_USD','USDCHF':'USD_CHF','USDCAD':'USD_CAD','NZDUSD':'NZD_USD','EURGBP':'EUR_GBP','EURJPY':'EUR_JPY','GBPJPY':'GBP_JPY','EURCHF':'EUR_CHF','EURCAD':'EUR_CAD','EURAUD':'EUR_AUD','EURNZD':'EUR_NZD','GBPAUD':'GBP_AUD','GBPCAD':'GBP_CAD','GBPCHF':'GBP_CHF','GBPNZD':'GBP_NZD','AUDCAD':'AUD_CAD','AUDCHF':'AUD_CHF','AUDJPY':'AUD_JPY','AUDNZD':'AUD_NZD','CADJPY':'CAD_JPY','CADCHF':'CAD_CHF','NZDJPY':'NZD_JPY','NZDCAD':'NZD_CAD','NZDCHF':'NZD_CHF','CHFJPY':'CHF_JPY'};
+const OANDA_TF={'1m':'M1','5m':'M5','15m':'M15','30m':'M30','1h':'H1','4h':'H4','1d':'D','1W':'W','1M':'M'};
 
 async function loadCandles(sym,tf){
   const mySeq=++seqId; candles=[];
   document.getElementById('loadInd').className='load-ind active';
   document.getElementById('errOverlay').className='err-overlay hidden';
+
+  // Normalize to canonical symbol
+  const canonSym = normalizeSymbol(sym);
+
   try{
-    const dSym = dbSym(sym);  // normalize: BTC-USDT -> BTC
-    const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dSym+'&timeframe=eq.'+tf+'&order=time.asc&limit=1000',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
-    if(r.ok){
-      const data=await r.json();
-      if(data&&data.length){
-        // Validation: check for duplicates, ordering, valid timestamps
-        const seen = new Set();
-        const valid = [];
-        for(const c of data){
-          const t = Number(c.time);
-          if(!t || t < 946684800 || t > Date.now()/1000 + 86400) continue; // before 2000 or future
-          if(seen.has(t)) continue; // skip duplicates
-          seen.add(t);
-          valid.push({time:t, open:+c.open, high:+c.high, low:+c.low, close:+c.close, volume:c.volume||0});
-        }
-        // Ensure ascending order (oldest first for setData)
-        valid.sort((a,b)=>a.time-b.time);
-        candles = valid;
-        console.log('[loadCandles]', sym, tf, 'loaded', candles.length, 'candles', candles.length?'range:'+new Date(candles[0].time*1000).toISOString()+' to '+new Date(candles[candles.length-1].time*1000).toISOString():'empty');
-      }
+    const url = `${SUPABASE_URL}/rest/v1/market_candles_v2?canonical_symbol=eq.${canonSym}&timeframe=eq.${tf}&order=open_time.asc&limit=300`;
+    const r = await fetch(url, {headers:{'apikey': SUPABASE_KEY}});
+    if(!r.ok){ throw new Error(`HTTP ${r.status}`); }
+    const data = await r.json();
+    if(mySeq!==seqId) return;
+    if(!data || !data.length){
+      console.error('[loadCandles] No data for', canonSym, tf);
+      document.getElementById('loadInd').className='load-ind';
+      document.getElementById('errOverlay').className='err-overlay';
+      return false;
     }
+    // Convert Supabase format to chart format
+    candles = data.map(c => ({
+      time: Math.floor(new Date(c.open_time).getTime()/1000),
+      open: Number(c.open),
+      high: Number(c.high),
+      low: Number(c.low),
+      close: Number(c.close),
+      volume: Number(c.volume||0)
+    })).filter((c,i,a)=>i===0 || a[i-1].time !== c.time);
+    
     document.getElementById('loadInd').className='load-ind';
     if(mySeq!==seqId) return;
-    if(!candles.length){ generatePlaceholderCandles(); }
     setChartData();
     applyPrecision();
-    // Initialize lastClose for this symbol from last historical candle
-    if(candles.length) lastCloseBySym[sym] = candles[candles.length-1].close;
     return true;
   }catch(e){
-    console.error('[loadCandles] error:', e);
+    console.error('[loadCandles] Error:', e);
     document.getElementById('loadInd').className='load-ind';
     document.getElementById('errOverlay').className='err-overlay';
     return false;
@@ -455,7 +448,7 @@ async function loadCandles(sym,tf){
 function generatePlaceholderCandles(){
   let base=cur.sym==='XAUUSD'?4000:cur.sym==='EURUSD'?1.1:cur.sym==='USDJPY'?150:100;
   const now=Math.floor(Date.now()/1000);
-  const tfSec = TF_SECONDS[CURRENT_TF] || 900;
+  const tfSec={'1m':60,'5m':300,'15m':900,'30m':1800,'1h':3600,'4h':14400,'1d':86400}[CURRENT_TF]||900;
   for(let i=299;i>=0;i--){
     const t=now-i*tfSec; const o=base+(Math.random()-0.5)*10; const h=o+Math.random()*5; const l=o-Math.random()*5; const c=l+Math.random()*(h-l);
     candles.push({time:t,open:o,high:h,low:l,close:c,volume:0}); base=c;
@@ -471,35 +464,30 @@ function setChartData(){
 
 function updateLiveCandle(price){
   if(!candleSeries||!candles.length||price<=0) return;
-  const last = candles[candles.length-1];
-  const now = Math.floor(Date.now()/1000);
-  const key = cur.sym; // APK symbol
-
+  const last=candles[candles.length-1];
+  const now=Math.floor(Date.now()/1000);
+  
   // Proper timeframe aggregation - each TF has its own bucket
   const tfSec = TF_SECONDS[CURRENT_TF] || 900;
   const curStart = Math.floor(now / tfSec) * tfSec;
-
-  // Sanity check: reject extreme price spikes (>5% from last close of THIS symbol)
-  const lastClose = lastCloseBySym[key];
-  if(lastClose && Math.abs(price - lastClose) / lastClose > 0.05){
-    console.warn('[updateLiveCandle] Price spike rejected:', price, 'vs', lastClose, 'for', key);
+  
+  // Sanity check: reject extreme price spikes (>5% from last close)
+  if(last.close && Math.abs(price - last.close) / last.close > 0.05){
+    console.warn('[updateLiveCandle] Price spike rejected:', price, 'vs', last.close);
     return;
   }
-
+  
   if(curStart > last.time){
-    // New candle - create fresh object using lastClose for THIS symbol
-    const openPrice = lastClose !== undefined ? lastClose : last.close;
-    const nc = {time:curStart, open:openPrice, high:price, low:price, close:price, volume:0};
+    // New candle - create fresh object
+    const nc={time:curStart,open:last.close,high:price,low:price,close:price,volume:0};
     candles.push(nc);
     candleSeries.update(nc);
-    lastCloseBySym[key] = price; // update lastClose for this symbol
     if(candles.length>1000) candles.shift();
   }else{
     // Update current candle - create fresh object (don't mutate reference)
-    const updated = {time:last.time, open:last.open, high:Math.max(last.high,price), low:Math.min(last.low,price), close:price};
-    candles[candles.length-1] = updated;
+    const updated={time:last.time,open:last.open,high:Math.max(last.high,price),low:Math.min(last.low,price),close:price};
+    candles[candles.length-1]=updated;
     candleSeries.update(updated);
-    lastCloseBySym[key] = price; // update lastClose for this symbol
   }
   updateChHeader(); updateOHLC();
 }
@@ -525,40 +513,24 @@ async function loadMoreHistory(){
   if(!cur||loadingMore||!candles.length) return; loadingMore=true;
   const oldest=candles[0].time, mySeq=++seqId;
   document.getElementById('loadInd').className='load-ind active';
+  const isCrypto=cur.cat==='CRYPTO';
   try{
-    const dSym = dbSym(cur.sym);
-    // Query for candles OLDER than oldest loaded (time < oldest)
-    const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dSym+'&timeframe=eq.'+CURRENT_TF+'&time=lt.'+oldest+'&order=time.asc&limit=1000',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
-    if(r.ok){
-      const data=await r.json();
-      if(mySeq!==seqId||!data||!data.length){loadingMore=false;document.getElementById('loadInd').className='load-ind';return}
-      
-      // Validation: same as loadCandles
-      const seen = new Set();
-      candles.forEach(c=>seen.add(c.time));
-      const valid = [];
-      for(const c of data){
-        const t = Number(c.time);
-        if(!t || t < 946684800 || t > Date.now()/1000 + 86400) continue;
-        if(seen.has(t)) continue;
-        seen.add(t);
-        valid.push({time:t, open:+c.open, high:+c.high, low:+c.low, close:+c.close, volume:c.volume||0});
-      }
-      valid.sort((a,b)=>a.time-b.time); // oldest first
-      
-      if(valid.length){
-        candles = valid.concat(candles); // prepend older candles
-        candleSeries.setData(candles); // full setData for prepended history
-        console.log('[loadMoreHistory] prepended', valid.length, 'candles, total:', candles.length);
-        toast('+'+valid.length+' older candles');
-      }
+    let data;
+    if(isCrypto){
+      const r=await fetch('https://www.okx.com/api/v5/market/history-candles?instId='+cur.sym+'&bar='+CURRENT_TF+'&limit=100&after='+(oldest*1000));
+      data=await r.json();
+      if(mySeq!==seqId||!data||!data.data||!data.data.length){loadingMore=false;document.getElementById('loadInd').className='load-ind';return}
+      const nc=data.data.reverse().map(c=>({time:parseInt(c[0])/1000,open:parseFloat(c[1]),high:parseFloat(c[2]),low:parseFloat(c[3]),close:parseFloat(c[4]),volume:parseFloat(c[5])})).filter(c=>!candles.some(e=>e.time===c.time)&&!isNaN(c.open));
+      if(nc.length){candles=nc.concat(candles);candleSeries.setData(candles);toast('+'+nc.length+' candles')}
+    }else{
+      const r=await fetch(PROXY+'/candles?symbol='+cur.sym+'&timeframe='+CURRENT_TF+'&count=300&before='+(oldest-1));
+      data=await r.json();
+      if(mySeq!==seqId||!data||!data.candles||!data.candles.length){loadingMore=false;document.getElementById('loadInd').className='load-ind';return}
+      const exist={}; candles.forEach(c=>exist[c.time]=true);
+      const nc=data.candles.filter(c=>!exist[c.time]);
+      if(nc.length){candles=nc.concat(candles);candleSeries.setData(candles);toast('+'+nc.length+' candles')}
     }
-  }catch(e){
-    console.error('[loadMoreHistory] error:', e);
-  }finally{
-    loadingMore=false;
-    document.getElementById('loadInd').className='load-ind';
-  }
+  }catch(e){}finally{loadingMore=false;document.getElementById('loadInd').className='load-ind'}
 }
 
 function retryChart(){loadCandles(cur.sym,CURRENT_TF)}
@@ -566,56 +538,57 @@ function retryChart(){loadCandles(cur.sym,CURRENT_TF)}
 /* ============ TIMEFRAME ============ */
 function buildTFBar(){let h='';TIMEFRAMES.forEach(t=>{h+='<div class="tf-btn'+(t.id===CURRENT_TF?' active':'')+'" data-tf="'+t.id+'" onclick="setTF(\''+t.id+'\')">'+t.l+'</div>'});document.getElementById('tfBar').innerHTML=h}
 function setTF(tf){
-  CURRENT_TF=tf;
+  CURRENT_TF=tf; 
   buildTFBar();
   // Clear chart and reload for new timeframe
   if(chart && candleSeries){
     candleSeries.setData([]);  // Clear old candles
     candles = [];
   }
-  // Reset lastClose for this symbol on TF change
-  delete lastCloseBySym[cur.sym];
   loadCandles(cur.sym, tf).then(() => {
     if(page==='CH') connectWS(cur.sym);
   });
 }
 
 /* ============ SETTINGS ============ */
+function getServerUrl(){
+  return localStorage.getItem('tv_server_url') || 'https://market-stream.mamali163345.workers.dev';
+}
 function getRealtimeUrl(){
   return localStorage.getItem('tv_realtime_url') || 'https://mbocedojtnvyfhlclnpm.supabase.co';
 }
-function saveRealtimeUrl(){
-  const url=document.getElementById('realtimeUrl').value.trim();
+function saveServerUrl(){
+  const url=document.getElementById('serverUrl').value.trim();
   if(!url){toast('Enter a URL');return;}
   try{new URL(url);}catch(e){toast('Invalid URL');return;}
-  localStorage.setItem('tv_realtime_url', url);
-  document.getElementById('realtimeStatus').innerHTML='<span style="color:#26a69a">✅ Saved! RT: '+url+'</span>';
-  toast('Realtime URL saved!');
+  localStorage.setItem('tv_server_url', url);
+  PROXY=url;
+  document.getElementById('serverStatus').innerHTML='<span style="color:#26a69a">✅ Saved! REST: '+url+'</span>';
+  toast('REST URL saved!');
 }
-function testRealtimeUrl(){
-  const url=document.getElementById('realtimeUrl').value.trim()||getRealtimeUrl();
-  document.getElementById('realtimeStatus').innerHTML='<span style="color:#f0b90b">⏳ Testing...</span>';
+function testServerUrl(){
+  const url=document.getElementById('serverUrl').value.trim()||getServerUrl();
+  document.getElementById('serverStatus').innerHTML='<span style="color:#f0b90b">⏳ Testing...</span>';
   fetch(url+'/health',{signal:AbortSignal.timeout(5000)})
     .then(r=>r.json())
-    .then(d=>{document.getElementById('realtimeStatus').innerHTML='<span style="color:#26a69a">✅ Server OK: '+JSON.stringify(d)+'</span>';})
-    .catch(e=>{document.getElementById('realtimeStatus').innerHTML='<span style="color:#ef5350">❌ Failed: '+e.message+'</span>';});
+    .then(d=>{document.getElementById('serverStatus').innerHTML='<span style="color:#26a69a">✅ Server OK: '+JSON.stringify(d)+'</span>';})
+    .catch(e=>{document.getElementById('serverStatus').innerHTML='<span style="color:#ef5350">❌ Failed: '+e.message+'</span>';});
 }
 function resetAllUrls(){
+  localStorage.removeItem('tv_server_url');
   localStorage.removeItem('tv_realtime_url');
-  document.getElementById('realtimeUrl').value='';
-  document.getElementById('realtimeStatus').innerHTML='<span style="color:#26a69a">✅ Reset to defaults</span>';
-  toast('Realtime URL reset!');
+  PROXY='https://market-stream.mamali163345.workers.dev';
+  document.getElementById('serverUrl').value='';
+  document.getElementById('serverStatus').innerHTML='<span style="color:#26a69a">✅ Reset to defaults</span>';
+  toast('All URLs reset!');
 }
 
 /* ============ INIT ============ */
 function init(){
-  // Load saved Realtime URL
-  document.getElementById('realtimeUrl').value=localStorage.getItem('tv_realtime_url') || '';
-  document.getElementById('currentServerDisplay').textContent='RT: '+getRealtimeUrl();
-  
-  // Set build info
-  document.getElementById('buildCommit').textContent = 'b7be8f9';
-  document.getElementById('buildTimestamp').textContent = new Date().toISOString().split('T')[0];
+  // Load saved URLs (REST + Realtime)
+  PROXY=getServerUrl();
+  document.getElementById('serverUrl').value=PROXY==='https://market-stream.mamali163345.workers.dev'?'':PROXY;
+  document.getElementById('currentServerDisplay').textContent='REST: '+PROXY+' | RT: '+getRealtimeUrl();
   
   // UI FIRST - buttons work immediately
   buildWL(); buildTFBar();
