@@ -384,7 +384,7 @@ function initChart(){
   });
   chart.timeScale().subscribeVisibleLogicalRangeChange(r=>{
     if(!r||!candles||candles.length<2) return;
-    if(r.from<=10) loadMoreHistory();
+    if(r.from<20) loadMoreHistory();
   });
   var rt=null;new ResizeObserver(()=>{if(rt)clearTimeout(rt);rt=setTimeout(()=>{if(chart&&el)chart.applyOptions({width:el.clientWidth,height:el.clientHeight})},100)}).observe(el);
   applyPrecision();
@@ -402,7 +402,7 @@ async function loadCandles(sym,tf){
   document.getElementById('errOverlay').className='err-overlay hidden';
   try{
     const dSym = dbSym(sym);  // normalize: BTC-USDT -> BTC
-    const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dSym+'&timeframe=eq.'+tf+'&order=time.desc&limit=300',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+    const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dSym+'&timeframe=eq.'+tf+'&order=time.desc&limit=1000',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
     if(r.ok){const data=await r.json(); if(data&&data.length){candles=data.reverse().map(c=>({time:c.time,open:+c.open,high:+c.high,low:+c.low,close:+c.close,volume:c.volume||0}));}}
     document.getElementById('loadInd').className='load-ind';
     if(mySeq!==seqId) return;
@@ -487,7 +487,7 @@ async function loadMoreHistory(){
   document.getElementById('loadInd').className='load-ind active';
   try{
     const dSym = dbSym(cur.sym);
-    const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dSym+'&timeframe=eq.'+CURRENT_TF+'&time=lt.'+oldest+'&order=time.desc&limit=300',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+    const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dSym+'&timeframe=eq.'+CURRENT_TF+'&time=lt.'+oldest+'&order=time.desc&limit=1000',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
     if(r.ok){
       const data=await r.json();
       if(mySeq!==seqId||!data||!data.length){loadingMore=false;document.getElementById('loadInd').className='load-ind';return}
