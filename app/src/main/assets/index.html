@@ -210,6 +210,17 @@ let cur = SYMBOLS[0], CURRENT_TF = '15m';
 let prices = {}, candles = [], page = 'WL';
 let chart = null, candleSeries = null;
 let wsConn = null, wsReconnectTimer = null;
+
+// === Symbol normalization: APK sym -> DB sym ===
+function dbSym(apkSym) {
+  if (!apkSym) return apkSym;
+  return apkSym.replace('-USDT', '').replace('-USDC', '').replace('USDT', '');
+}
+// === Reverse: DB sym -> APK sym (for prices lookup) ===
+function apkSymFromDB(dbSymbol) {
+  const crypto = {'BTC': 'BTC-USDT', 'ETH': 'ETH-USDT', 'SOL': 'SOL-USDT'};
+  return crypto[dbSymbol] || dbSymbol;
+}
 let pricePollTimer = null, chartPollTimer = null;
 let loadingMore = false, seqId = 0;
 
@@ -278,14 +289,11 @@ function fetchPrices(){
     if(!d||!d.length) return;
     d.forEach(p=>{
       if(p.price==null) return;
-      // Map DB symbols to APK symbols (BTC->BTC-USDT etc)
-      let sym=p.symbol;
-      if(!prices[sym]) prices[sym]={};
-      prices[sym]={mid:p.price,bid:p.bid||p.price,ask:p.ask||p.price,open:p.open||prices[sym].open,time:p.updated_at?new Date(p.updated_at).getTime()/1000:Date.now()/1000};
-      // Also store under USDT key for crypto lookup
-      if(['BTC','ETH','SOL'].includes(sym)){
-        prices[sym+'-USDT']=prices[sym];
-      }
+      // Store under BOTH DB key and APK key
+      const aKey = apkSymFromDB(p.symbol);
+      const priceData = {mid:p.price,bid:p.bid||p.price,ask:p.ask||p.price,open:p.open,time:p.updated_at?new Date(p.updated_at).getTime()/1000:Date.now()/1000};
+      prices[p.symbol] = priceData;
+      prices[aKey] = priceData;
     });
     if(page==='WL') buildWL();
     if(page==='CH') updateChHeader();
@@ -311,10 +319,11 @@ function connectWS(sym){
     
     supabaseChannel.on('broadcast', { event: 'tick' }, ({ payload }) => {
       if(payload && payload.price != null){
-        const s = payload.symbol || 'XAUUSD';
-        console.log('[Supabase TICK]', s, payload.price, 'cur=', cur.sym);
-        if(s === cur.sym){
-          prices[s] = { mid: payload.price, time: payload.timestamp || Date.now() };
+        const rawSym = payload.symbol || 'XAUUSD';
+        const tickDbSym = dbSym(rawSym);  // normalize: BTC-USDT -> BTC
+        const curDbSym = dbSym(cur.sym);  // normalize current: BTC-USDT -> BTC
+        if(tickDbSym === curDbSym){
+          prices[cur.sym] = { mid: payload.price, time: payload.timestamp || Date.now() };
           updateLiveCandle(payload.price);
           updateChHeader();
         }
@@ -392,9 +401,9 @@ async function loadCandles(sym,tf){
   document.getElementById('loadInd').className='load-ind active';
   document.getElementById('errOverlay').className='err-overlay hidden';
   try{
-    const dbSym=sym.replace('-USDT','').replace('USDT','');
-    const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dbSym+'&timeframe=eq.'+tf+'&order=time.asc&limit=300',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
-    if(r.ok){const data=await r.json(); if(data&&data.length){candles=data.map(c=>({time:c.time,open:+c.open,high:+c.high,low:+c.low,close:+c.close,volume:c.volume||0}));}}
+    const dSym = dbSym(sym);  // normalize: BTC-USDT -> BTC
+    const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dSym+'&timeframe=eq.'+tf+'&order=time.desc&limit=300',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+    if(r.ok){const data=await r.json(); if(data&&data.length){candles=data.reverse().map(c=>({time:c.time,open:+c.open,high:+c.high,low:+c.low,close:+c.close,volume:c.volume||0}));}}
     document.getElementById('loadInd').className='load-ind';
     if(mySeq!==seqId) return;
     if(!candles.length){generatePlaceholderCandles();}
@@ -477,8 +486,8 @@ async function loadMoreHistory(){
   const oldest=candles[0].time, mySeq=++seqId;
   document.getElementById('loadInd').className='load-ind active';
   try{
-    const dbSym=cur.sym.replace('-USDT','').replace('USDT','');
-    const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dbSym+'&timeframe=eq.'+CURRENT_TF+'&time=lt.'+oldest+'&order=time.desc&limit=300',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
+    const dSym = dbSym(cur.sym);
+    const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dSym+'&timeframe=eq.'+CURRENT_TF+'&time=lt.'+oldest+'&order=time.desc&limit=300',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
     if(r.ok){
       const data=await r.json();
       if(mySeq!==seqId||!data||!data.length){loadingMore=false;document.getElementById('loadInd').className='load-ind';return}
