@@ -272,9 +272,11 @@ function goChart(sym){
   showPg('CH');
 }
 function fetchPrices(){
-  fetch(SUPABASE_URL+'/rest/v1/market_prices?select=symbol,price,bid,ask,open,updated_at&order=symbol.asc',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}}).then(r=>r.json()).then(d=>{
-    if(!d||!d.length) return;
-    d.forEach(p=>{if(p.price!=null){const old=prices[p.symbol]||{};prices[p.symbol]={mid:p.price,bid:p.bid||p.price,ask:p.ask||p.price,open:p.open||old.open,time:p.updated_at?new Date(p.updated_at).getTime()/1000:Date.now()/1000}}});
+  const oSyms=SYMBOLS.filter(s=>s.cat!=='CRYPTO').map(s=>s.sym);
+  if(!oSyms.length) return;
+  fetch(PROXY+'/price?symbols='+oSyms.join(',')).then(r=>r.json()).then(d=>{
+    if(!d.prices) return;
+    d.prices.forEach(p=>{if(p.mid!=null){const old=prices[p.symbol]||{};prices[p.symbol]={mid:p.mid,bid:p.bid,ask:p.ask,open:p.open||old.open,time:p.time}}});
     if(page==='WL') buildWL();
     if(page==='CH') updateChHeader();
   }).catch(()=>{});
@@ -379,15 +381,36 @@ async function loadCandles(sym,tf){
   const mySeq=++seqId; candles=[];
   document.getElementById('loadInd').className='load-ind active';
   document.getElementById('errOverlay').className='err-overlay hidden';
+  
+  const isCrypto=SYMBOLS.find(s=>s.sym===sym)?.cat==='CRYPTO';
   try{
-    const dbSym=sym.replace('-USDT','').replace('USDT','');
-    const r=await fetch(SUPABASE_URL+'/rest/v1/market_candles?select=time,open,high,low,close,volume&symbol=eq.'+dbSym+'&timeframe=eq.'+tf+'&order=time.asc&limit=300',{headers:{'apikey':SUPABASE_KEY,'Authorization':'Bearer '+SUPABASE_KEY}});
-    if(r.ok){const data=await r.json(); if(data&&data.length){candles=data.map(c=>({time:c.time,open:+c.open,high:+c.high,low:+c.low,close:+c.close,volume:c.volume||0}));}}
+    let data;
+    if(isCrypto){
+      const r=await fetch('https://www.okx.com/api/v5/market/candles?instId='+sym+'&bar='+tf+'&limit=300');
+      data=await r.json();
+      if(mySeq!==seqId||!data||!data.data) return;
+      candles=data.data.reverse().map(c=>({time:parseInt(c[0])/1000,open:parseFloat(c[1]),high:parseFloat(c[2]),low:parseFloat(c[3]),close:parseFloat(c[4]),volume:parseFloat(c[5])})).filter((c,i,a)=>i===0||a[i-1].time!==c.time);
+    }else{
+      // Try Worker first, then direct OANDA
+      let got=false;
+      try{
+        const r=await fetch(PROXY+'/candles?symbol='+sym+'&timeframe='+tf+'&count=300');
+        if(r.ok){data=await r.json(); if(data.candles&&data.candles.length){candles=data.candles; got=true;}}
+      }catch(e){}
+      if(!got){
+        try{
+          const inst=SYMS_INST[sym];
+          const oTf=OANDA_TF[tf]||'M15';
+          const r=await fetch(OANDA_URL+'/v3/instruments/'+inst+'/candles?granularity='+oTf+'&price=M&count=300',{headers:{'Authorization':'Bearer '+OANDA_TOK}});
+          if(r.ok){data=await r.json(); candles=(data.candles||[]).map(c=>{const m=c.mid||{};return{time:Math.floor(new Date(c.time).getTime()/1000),open:+m.o,high:+m.h,low:+m.l,close:+m.c,volume:c.volume||0};}).filter((c,i,a)=>i===0||a[i-1].time!==c.time);}
+        }catch(e){}
+      }
+    }
     document.getElementById('loadInd').className='load-ind';
     if(mySeq!==seqId) return;
     if(!candles.length){generatePlaceholderCandles();}
     setChartData();
-    applyPrecision();
+    applyPrecision();  // Apply precision for current symbol
     return true;
   }catch(e){
     document.getElementById('loadInd').className='load-ind';
