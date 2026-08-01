@@ -487,7 +487,11 @@ function initChart(){
     if(!r||!candles||candles.length<2) return;
     console.log(`[HISTORY_TRIGGER] symbol=${cur.sym} timeframe=${CURRENT_TF} visibleFrom=${r.from.toFixed(2)} visibleTo=${r.to.toFixed(2)} candlesLength=${candles.length}`);
     // Trigger when user scrolls near left edge (within 20 bars)
-    if(r.from<=20 && !loadingMore) loadMoreHistory();
+    // FIX: History Scroll sensitivity + loading safety
+    if(r.from <= 50 && !loadingMore) {
+      loadingMore = true;
+      loadMoreHistory().finally(() => { loadingMore = false; });
+    }
   });
   // Fallback: poll every 3s to check if user is near left edge
   if(window._chartPollInterval) clearInterval(window._chartPollInterval);
