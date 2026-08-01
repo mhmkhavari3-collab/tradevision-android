@@ -126,7 +126,7 @@ button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
   <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
     <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">ℹ️ About</div>
     <div style="font-size:12px;color:#787b86">
-      TradeVision v1.0.32-candle-test<br>
+      TradeVision v1.0.32-candle-test2<br>
       Engine: Lightweight Charts<br>
       Data: Supabase Only (market_prices + market_candles_v2)<br>
     </div>
@@ -197,6 +197,16 @@ function getTimeframeSeconds(tf){
 }
 
 // Timeframe seconds for proper candle aggregation
+function alignTimestamp(rawTime, tf){
+  if(tf==="1M"){
+    const d = new Date(rawTime * 1000);
+    d.setUTCDate(1);
+    d.setUTCHours(0,0,0,0);
+    return Math.floor(d.getTime() / 1000);
+  }
+  const tfSeconds = getTimeframeSeconds(tf);
+  return Math.floor(rawTime / tfSeconds) * tfSeconds;
+}
 // TF_SECONDS removed - tick-based candle building removed
 
 /* ============ STATE ============ */
@@ -530,7 +540,13 @@ async function loadCandles(sym,tf){
     console.log(`[loadCandles] OK: ${canonSym}/${tf} rows=${reversed.length} oldest=${reversed[0]?.open_time} newest=${reversed[reversed.length-1]?.open_time}`);
     // Convert Supabase format to chart format
     candles = reversed.map(c => ({
-      time: Math.floor(new Date(c.open_time).getTime()/1000),
+      const rawTime = Math.floor(new Date(c.open_time).getTime()/1000);
+      const alignedTime = alignTimestamp(rawTime, CURRENT_TF);
+      console.log(`[HISTORY] originalTime=${rawTime} alignedTime=${alignedTime}`);
+      time: alignedTime,
+      const alignedTime = alignTimestamp(rawTime, tf);
+      console.log(`[HISTORY] originalTime=${rawTime} alignedTime=${alignedTime}`);
+      time: alignedTime,
       open: Number(c.open),
       high: Number(c.high),
       low: Number(c.low),
@@ -570,15 +586,12 @@ function updateChartCandle(candleData){
   // candleData: {canonical_symbol, timeframe, open_time, open, high, low, close, is_closed}
   if(!candleSeries||!candles.length||!candleData) return;
   
-  // 1. Convert timeframe to seconds
-  const tfSeconds = getTimeframeSeconds(CURRENT_TF);
-  console.log(`[TF] CURRENT_TF=${CURRENT_TF} tfSeconds=${tfSeconds}`);
-  
-  // 2. Get raw time from server
+  // 1. Get raw time from server
   const rawTime = Math.floor(new Date(candleData.open_time).getTime()/1000);
   
-  // 3. Align timestamp to timeframe bucket (fix for choppy candles)
-  const candleTime = Math.floor(rawTime / tfSeconds) * tfSeconds;
+  // 2. Align timestamp to timeframe bucket (fix for choppy candles)
+  const candleTime = alignTimestamp(rawTime, CURRENT_TF);
+  console.log(`[TF] CURRENT_TF=${CURRENT_TF}`);
   console.log(`[RTC] rawTime=${rawTime} alignedTime=${candleTime}`);
   
   const chartCandle = {
@@ -679,7 +692,13 @@ async function loadMoreHistory(){
     // Convert and reverse (Supabase returns desc, we need oldest first for prepend)
     // FIX 4: Use candleMap.has() for O(1) duplicate detection
     const nc = data.reverse().map(c => ({
-      time: Math.floor(new Date(c.open_time).getTime()/1000),
+      const rawTime = Math.floor(new Date(c.open_time).getTime()/1000);
+      const alignedTime = alignTimestamp(rawTime, CURRENT_TF);
+      console.log(`[HISTORY] originalTime=${rawTime} alignedTime=${alignedTime}`);
+      time: alignedTime,
+      const alignedTime = alignTimestamp(rawTime, tf);
+      console.log(`[HISTORY] originalTime=${rawTime} alignedTime=${alignedTime}`);
+      time: alignedTime,
       open: Number(c.open),
       high: Number(c.high),
       low: Number(c.low),
