@@ -194,9 +194,18 @@ let chart = null, candleSeries = null;
 let wsConn = null, wsReconnectTimer = null;
 let pricePollTimer = null, chartPollTimer = null;
 let loadingMore = false, seqId = 0;
+let candleMap = new Map(); // time -> index for O(1) lookup
 
 /* ============ UTILS ============ */
 const fp = (v,p) => v!=null?Number(v).toFixed(p!=null?p:2):'—';
+
+function rebuildCandleMap(){
+  candleMap.clear();
+  for(let i=0; i<candles.length; i++){
+    // For 1m: exact match. For larger TFs: bucket by 60s
+    candleMap.set(candles[i].time, i);
+  }
+}
 const pct = v => v>=0?'+'+v.toFixed(2)+'%':v.toFixed(2)+'%';
 const toast = m => {const e=document.getElementById('toast');e.textContent=m;e.className='toast show';setTimeout(()=>e.className='toast',2000)};
 
@@ -357,6 +366,7 @@ function connectWS(sym){
       if(p && p.canonical_symbol && p.timeframe && page==='CH' && cur){
         // Only process if matches current symbol and timeframe
         if(p.canonical_symbol === cur.sym && p.timeframe === CURRENT_TF){
+          console.log(`[Realtime] candle UPDATE: ${p.canonical_symbol}/${p.timeframe} ${p.open_time} O=${p.open} H=${p.high} L=${p.low} C=${p.close}`);
           updateChartCandle(p);
         }
       }
@@ -486,6 +496,7 @@ async function loadCandles(sym,tf){
 function setChartData(){
   if(!candleSeries||!candles.length) return;
   candleSeries.setData(candles); // ONLY ONCE for history
+  rebuildCandleMap();
   chart.timeScale().fitContent();
   updateChHeader(); updateOHLC();
 }
@@ -511,28 +522,47 @@ function updateChartCandle(candleData){
     volume: Number(candleData.volume||0)
   };
   
-  // Search the entire array for matching candle
-  let idx = -1;
-  for(let i = candles.length - 1; i >= Math.max(0, candles.length - 100); i--){
-    if(Math.abs(candles[i].time - chartCandle.time) < 60){
-      idx = i;
-      break;
-    }
+  const last = candles[candles.length-1];
+  const lastTime = last ? last.time : 0;
+  const debugTime = new Date(candleTime*1000).toISOString().substr(11,8);
+  
+  // Case 1: Update for LAST candle (most common - same minute)
+  if(last && Math.abs(last.time - chartCandle.time) < 60){
+    candles[candles.length-1] = chartCandle;
+    candleSeries.update(chartCandle);
+    candleMap.set(chartCandle.time, candles.length-1);
+    console.log(`[RTC] REPLACE last: ${debugTime} C=${chartCandle.close}`);
+    updateChHeader(); updateOHLC();
+    return;
   }
   
-  if(idx >= 0){
-    // Found matching candle - update in place
+  // Case 2: Update for candle in MIDDLE of array (non-last)
+  const idx = candleMap.get(chartCandle.time);
+  if(idx !== undefined && idx >= 0 && idx < candles.length - 1){
     candles[idx] = chartCandle;
     candleSeries.update(chartCandle);
-  }else if(chartCandle.time > (candles[candles.length-1]?.time || 0)){
-    // New candle - append
-    candles.push(chartCandle);
-    candleSeries.update(chartCandle);
-    // Keep max 1000 candles
-    if(candles.length > 1000) candles.shift();
+    console.log(`[RTC] REPLACE mid[${idx}]: ${debugTime} C=${chartCandle.close}`);
+    updateChHeader(); updateOHLC();
+    return;
   }
-  updateChHeader();
-  updateOHLC();
+  
+  // Case 3: Completely NEW candle - append
+  if(chartCandle.time > lastTime){
+    candles.push(chartCandle);
+    candleMap.set(chartCandle.time, candles.length-1);
+    candleSeries.update(chartCandle);
+    console.log(`[RTC] APPEND: ${debugTime} C=${chartCandle.close} total=${candles.length}`);
+    if(candles.length > 1000){
+      const removed = candles.shift();
+      candleMap.delete(removed.time);
+      rebuildCandleMap(); // Rebuild after shift
+    }
+    updateChHeader(); updateOHLC();
+    return;
+  }
+  
+  // Case 4: Candle is OLDER than last - log but ignore
+  console.log(`[RTC] STALE: ${debugTime} (last=${new Date(lastTime*1000).toISOString().substr(11,8)})`);
 }
 
 function updateOHLC(){
@@ -587,6 +617,7 @@ async function loadMoreHistory(){
     if(nc.length){
       candles = nc.concat(candles);
       candleSeries.setData(candles);
+      rebuildCandleMap();
       // Don't restore position - user stays at latest data
       // They can scroll left to see older candles
       console.log(`[loadMoreHistory] PREPEND: +${nc.length} candles, total=${candles.length}`);
