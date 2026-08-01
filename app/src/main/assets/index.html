@@ -419,6 +419,16 @@ function initChart(){
     // Trigger when user scrolls near left edge (within 20 bars)
     if(r.from<=20 && !loadingMore) loadMoreHistory();
   });
+  // Fallback: poll every 2s to check if user is near left edge
+  // (subscribeVisibleLogicalRangeChange may not fire on all scroll events)
+  if(window._chartPollInterval) clearInterval(window._chartPollInterval);
+  window._chartPollInterval = setInterval(()=>{
+    if(!chart||loadingMore||!candles||candles.length<2) return;
+    try{
+      const vr = chart.timeScale().getVisibleLogicalRange();
+      if(vr && vr.from <= 10) loadMoreHistory();
+    }catch(e){}
+  }, 2000);
   var rt=null;new ResizeObserver(()=>{if(rt)clearTimeout(rt);rt=setTimeout(()=>{if(chart&&el)chart.applyOptions({width:el.clientWidth,height:el.clientHeight})},100)}).observe(el);
   applyPrecision();
 }
