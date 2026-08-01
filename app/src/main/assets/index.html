@@ -128,7 +128,7 @@ button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
     <div style="font-size:12px;color:#787b86">
       TradeVision v1.0.32<br>
       Engine: Lightweight Charts<br>
-      Data: Supabase Only (market_prices + market_candles_v2)<br>
+      Data: Supabase Only (market_prices + market_candles)<br>
     </div>
   </div>
   
@@ -280,21 +280,21 @@ function buildWL(){
 function goChart(sym){
   const s=SYMBOLS.find(x=>x.sym===sym);
   if(!s) return;
-  
-  // Symbol switch: disconnect old stream
+
+  // Symbol switch: FULL RESET - destroy chart, clear all state
   disconnectWS();
   stopChartPoll();
-  
+  destroyChart();
+
   // Clear candle state
   candles = [];
-  candleMap.clear(); // FIX 1: Clear map on symbol change
-  if(candleSeries) candleSeries.setData([]);
-  
+  candleMap.clear();
+
   // Update current symbol
   cur = s;
   document.getElementById('hdrSym').textContent = s.display;
-  applyPrecision();  // Apply new symbol's precision
-  
+  applyPrecision();
+
   showPg('CH');
 }
 function fetchPrices(){
@@ -373,11 +373,11 @@ function connectWS(sym){
       }
     });
     
-    // 2. Subscribe to market_candles_v2 UPDATE events (current symbol + TF)
-    supabaseChannel.on('postgres_changes', { 
-      event: 'UPDATE', 
-      schema: 'public', 
-      table: 'market_candles_v2'
+    // 2. Subscribe to market_candles UPDATE events (current symbol + TF)
+    supabaseChannel.on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'market_candles'
     }, (payload) => {
       const p = payload.new;
       if(p && p.canonical_symbol && p.timeframe && page==='CH' && cur){
@@ -396,7 +396,7 @@ function connectWS(sym){
       // FIX 5: Reconnect logic
       if(status === 'SUBSCRIBED'){
         wsReconnectAttempts = 0;
-        console.log('[Supabase] Realtime connected, subscribed to market_prices + market_candles_v2');
+        console.log('[Supabase] Realtime connected, subscribed to market_prices + market_candles');
       }else if(status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT'){
         handleReconnect(sym);
       }
@@ -437,15 +437,27 @@ function disconnectWS(){
   setWSStatus(false);
 }
 
-function setWSStatus(connected){
-  const live=document.getElementById('chLive');
-  if(connected){live.style.display=''}else{live.style.display='none'}
+function stopChartPoll(){
+  if(chartPollTimer){clearInterval(chartPollTimer);chartPollTimer=null}
+  if(window._chartPollInterval){clearInterval(window._chartPollInterval);window._chartPollInterval=null} // FIX 2
+}
+
+function destroyChart(){
+  if(chart){
+    try{
+      chart.remove();
+    }catch(e){}
+    chart = null;
+    candleSeries = null;
+  }
 }
 
 /* ============ CHART - LWC (v8 Logic) ============ */
 function initChart(){
-  if(chart) return; // Chart instance stays alive
   const el=document.getElementById('chartEl');
+  if(!el || !el.clientWidth) return;
+  
+  // Create new chart instance
   chart=LightweightCharts.createChart(el,{
     width:el.clientWidth,height:el.clientHeight||400,autoSize:true,
     layout:{background:{color:'#0a0e14'},textColor:'#787b86',fontSize:11},
@@ -474,8 +486,7 @@ function initChart(){
     // Trigger when user scrolls near left edge (within 20 bars)
     if(r.from<=20 && !loadingMore) loadMoreHistory();
   });
-  // Fallback: poll every 2s to check if user is near left edge
-  // (subscribeVisibleLogicalRangeChange may not fire on all scroll events)
+  // Fallback: poll every 3s to check if user is near left edge
   if(window._chartPollInterval) clearInterval(window._chartPollInterval);
   window._chartPollInterval = setInterval(()=>{
     if(!chart||loadingMore||!candles||candles.length<2) return;
@@ -485,7 +496,6 @@ function initChart(){
       if(vr && vr.from <= 15) loadMoreHistory();
     }catch(e){console.log('[poll] error:', e)}
   }, 3000);
-  // FIX 6: Removed ResizeObserver - using autoSize:true instead
   applyPrecision();
 }
 function applyPrecision(){if(candleSeries&&cur)candleSeries.applyOptions({priceFormat:{type:'price',precision:cur.prec,minMove:cur.minMove}})}
@@ -504,7 +514,7 @@ async function loadCandles(sym,tf){
 
   try{
     // Get newest 300 candles (desc), then reverse for chart (asc)
-    const url = `${SUPABASE_URL}/rest/v1/market_candles_v2?canonical_symbol=eq.${canonSym}&timeframe=eq.${tf}&order=open_time.desc&limit=300`;
+    const url = `${SUPABASE_URL}/rest/v1/market_candles?canonical_symbol=eq.${canonSym}&timeframe=eq.${tf}&order=open_time.desc&limit=300`;
     const r = await fetch(url, {headers:{'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY}});
     if(!r.ok){ throw new Error(`HTTP ${r.status}`); }
     const data = await r.json();
@@ -555,10 +565,10 @@ function updateLiveCandle(price){
 }
 
 function updateChartCandle(candleData){
-  // Handle market_candles_v2 Realtime UPDATE event
-  // candleData: {canonical_symbol, timeframe, open_time, open, high, low, close, is_closed}
+  // Handle market_candles Realtime UPDATE event
+  // candleData: {canonical_symbol, timeframe, open_time, open, high, low, close, volume, is_closed}
   if(!candleSeries||!candles.length||!candleData) return;
-  
+
   const candleTime = Math.floor(new Date(candleData.open_time).getTime()/1000);
   const chartCandle = {
     time: candleTime,
@@ -568,48 +578,49 @@ function updateChartCandle(candleData){
     close: Number(candleData.close),
     volume: Number(candleData.volume||0)
   };
-  
+
   const last = candles[candles.length-1];
   const lastTime = last ? last.time : 0;
   const debugTime = new Date(candleTime*1000).toISOString().substr(11,8);
-  
-  // Case 1: Update for LAST candle (most common - same minute)
+  const isClosed = candleData.is_closed === true;
+
+  // Case 1: Update for LAST candle (same timestamp)
   if(last && Math.abs(last.time - chartCandle.time) < 60){
     candles[candles.length-1] = chartCandle;
     candleSeries.update(chartCandle);
     candleMap.set(chartCandle.time, candles.length-1);
-    console.log(`[RTC] REPLACE last: ${debugTime} C=${chartCandle.close}`);
+    console.log(`[RTC] REPLACE last: ${debugTime} C=${chartCandle.close} closed=${isClosed}`);
     updateChHeader(); updateOHLC();
     return;
   }
-  
+
   // Case 2: Update for candle in MIDDLE of array (non-last)
   const idx = candleMap.get(chartCandle.time);
   if(idx !== undefined && idx >= 0 && idx < candles.length){
     candles[idx] = chartCandle;
     candleSeries.update(chartCandle);
-    console.log(`[RTC] REPLACE mid[${idx}]: ${debugTime} C=${chartCandle.close}`);
+    console.log(`[RTC] REPLACE mid[${idx}]: ${debugTime} C=${chartCandle.close} closed=${isClosed}`);
     updateChHeader(); updateOHLC();
     return;
   }
-  
-  // Case 3: Completely NEW candle - append
+
+  // Case 3: Completely NEW candle - append only if newer than last
   if(chartCandle.time > lastTime){
     candles.push(chartCandle);
     candleMap.set(chartCandle.time, candles.length-1);
     candleSeries.update(chartCandle);
-    console.log(`[RTC] APPEND: ${debugTime} C=${chartCandle.close} total=${candles.length}`);
+    console.log(`[RTC] APPEND: ${debugTime} C=${chartCandle.close} closed=${isClosed} total=${candles.length}`);
     if(candles.length > 1000){
       const removed = candles.shift();
       candleMap.delete(removed.time);
-      rebuildCandleMap(); // Rebuild after shift
+      rebuildCandleMap();
     }
     updateChHeader(); updateOHLC();
     return;
   }
-  
+
   // Case 4: Candle is OLDER than last - log but ignore
-  console.log(`[RTC] STALE: ${debugTime} (last=${new Date(lastTime*1000).toISOString().substr(11,8)})`);
+  console.log(`[RTC] STALE: ${debugTime} (last=${new Date(lastTime*1000).toISOString().substr(11,8)}) closed=${isClosed}`);
 }
 
 function updateOHLC(){
@@ -647,7 +658,7 @@ async function loadMoreHistory(){
     // URL encode the timestamp for Supabase query
     const oldestISO = new Date(oldest*1000).toISOString();
     const oldestEnc = encodeURIComponent(oldestISO);
-    const url = `${SUPABASE_URL}/rest/v1/market_candles_v2?canonical_symbol=eq.${canonSym}&timeframe=eq.${CURRENT_TF}&open_time=lt.${oldestEnc}&order=open_time.desc&limit=300`;
+    const url = `${SUPABASE_URL}/rest/v1/market_candles?canonical_symbol=eq.${canonSym}&timeframe=eq.${CURRENT_TF}&open_time=lt.${oldestEnc}&order=open_time.desc&limit=300`;
     console.log(`[loadMoreHistory] URL: ${url}`);
     const r = await fetch(url, {headers:{'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY}});
     console.log(`[loadMoreHistory] Response: ${r.status} ${r.statusText}`);
@@ -696,17 +707,22 @@ async function loadMoreHistory(){
 
 function retryChart(){loadCandles(cur.sym,CURRENT_TF)}
 
+function setWSStatus(connected){
+  const live=document.getElementById('chLive');
+  if(connected){live.style.display=''}else{live.style.display='none'}
+}
+
 /* ============ TIMEFRAME ============ */
 function buildTFBar(){let h='';TIMEFRAMES.forEach(t=>{h+='<div class="tf-btn'+(t.id===CURRENT_TF?' active':'')+'" data-tf="'+t.id+'" onclick="setTF(\''+t.id+'\')">'+t.l+'</div>'});document.getElementById('tfBar').innerHTML=h}
 function setTF(tf){
-  CURRENT_TF=tf; 
+  CURRENT_TF=tf;
   buildTFBar();
-  // Clear chart and reload for new timeframe
-  if(chart && candleSeries){
-    candleSeries.setData([]);  // Clear old candles
-    candles = [];
-    candleMap.clear(); // FIX 1: Clear map on timeframe change
-  }
+  
+  // Full reset on timeframe change - destroy chart, clear state
+  destroyChart();
+  candles = [];
+  candleMap.clear();
+  
   loadCandles(cur.sym, tf).then(() => {
     if(page==='CH') connectWS(cur.sym);
   });
