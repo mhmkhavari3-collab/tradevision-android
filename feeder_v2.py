@@ -351,18 +351,24 @@ async def fetch_all_prices(session: aiohttp.ClientSession):
         for canonical, config in SYMBOL_CONFIG.items():
             try:
                 if config["oanda"]:
-                    # Fetch current price from OANDA
+                    # Fetch current price from OANDA pricing endpoint
                     instrument = config["oanda"]
-                    url = f"https://api-fxtrade.oanda.com/v3/instruments/{instrument}"
+                    url = f"https://api-fxtrade.oanda.com/v3/accounts/{OANDA_ACCOUNT_ID}/instruments/{instrument}/candles"
                     headers = {"Authorization": f"Bearer {OANDA_TOKEN}"}
-                    async with session.get(url, headers=headers) as resp:
+                    params = {
+                        "granularity": "M1",
+                        "count": "1",
+                        "price": "M"
+                    }
+                    async with session.get(url, headers=headers, params=params) as resp:
                         if resp.status == 200:
                             data = await resp.json()
-                            pricing = data.get("instrument", {}).get("pricing", {})
-                            if pricing:
-                                mid = float(pricing.get("mid", {}).get("b", 0)) + float(pricing.get("mid", {}).get("a", 0)) / 2
-                                bid = float(pricing.get("bid", {}).get("b", 0))
-                                ask = float(pricing.get("ask", {}).get("a", 0))
+                            candles = data.get("candles", [])
+                            if candles:
+                                c = candles[0]
+                                mid = float(c.get("mid", {}).get("m", 0))
+                                bid = float(c.get("bid", {}).get("b", mid))
+                                ask = float(c.get("ask", {}).get("a", mid))
                                 supabase.table("market_prices").upsert({
                                     "canonical_symbol": canonical,
                                     "mid_price": mid,
@@ -374,7 +380,8 @@ async def fetch_all_prices(session: aiohttp.ClientSession):
                         elif resp.status == 429:
                             log.warning(f"[PRICES] OANDA 429 for {canonical}, skipping")
                         else:
-                            log.error(f"[PRICES] OANDA {resp.status} for {canonical}")
+                            text = await resp.text()
+                            log.error(f"[PRICES] OANDA {resp.status} for {canonical}: {text[:100]}")
 
                 if config["okx"]:
                     # Fetch current price from OKX
@@ -506,36 +513,56 @@ async def poll_okx_symbol(
 
 
 async def backfill_historical(session: aiohttp.ClientSession):
-    log.info("Starting historical backfill...")
+    """
+    Round-robin backfill: fetch a few candles from each symbol/TF,
+    then move to the next. Prevents one symbol from blocking others.
+    """
+    log.info("Starting historical backfill (round-robin)...")
+
+    # Build all symbol/TF pairs that need backfill
+    pairs = []
     for canonical, config in SYMBOL_CONFIG.items():
         for tf in TF_OANDA.keys():
-            try:
-                if config["oanda"]:
-                    granularity = TF_OANDA[tf]
-                    to_time = datetime.now(timezone.utc)
-                    from_time = to_time - timedelta(days=30)
-                    raw = await fetch_oanda_candles(session, config["oanda"], granularity, from_time, to_time)
-                    parsed = [parse_oanda_candle(r, canonical, tf) for r in raw]
-                    valid = [c for c in parsed if c]
-                    if valid:
-                        await upsert_candles(valid)
-                        log.info(f"Backfill OANDA {canonical} {tf}: {len(valid)} candles")
+            if config["oanda"]:
+                pairs.append(("oanda", canonical, config, tf))
+            if config["okx"]:
+                pairs.append(("okx", canonical, config, tf))
 
-                if config["okx"]:
-                    bar = TF_OKX[tf]
-                    to_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-                    from_ms = to_ms - (30 * 24 * 60 * 60 * 1000)
-                    raw = await fetch_okx_candles(session, config["okx"], bar, from_ms, to_ms)
-                    parsed = [parse_okx_candle(r, canonical, tf) for r in raw]
-                    valid = [c for c in parsed if c]
-                    if valid:
-                        await upsert_candles(valid)
-                        log.info(f"Backfill OKX {canonical} {tf}: {len(valid)} candles")
+    log.info(f"[BACKFILL] Total pairs to backfill: {len(pairs)}")
 
-                await asyncio.sleep(0.5)
-            except Exception as e:
-                log.error(f"Backfill error {canonical} {tf}: {e}")
-    log.info("Historical backfill complete")
+    # Round-robin: process each pair one at a time
+    for idx, (provider, canonical, config, tf) in enumerate(pairs):
+        try:
+            if provider == "oanda" and config["oanda"]:
+                instrument = config["oanda"]
+                granularity = TF_OANDA[tf]
+                to_time = datetime.now(timezone.utc)
+                from_time = to_time - timedelta(days=30)
+                raw = await fetch_oanda_candles(session, instrument, granularity, from_time, to_time)
+                parsed = [parse_oanda_candle(r, canonical, tf) for r in raw]
+                valid = [c for c in parsed if c]
+                if valid:
+                    await upsert_candles(valid)
+                    log.info(f"[BACKFILL] OANDA {canonical} {tf}: {len(valid)} candles")
+
+            elif provider == "okx" and config["okx"]:
+                bar = TF_OKX[tf]
+                to_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                from_ms = to_ms - (30 * 24 * 60 * 60 * 1000)
+                raw = await fetch_okx_candles(session, config["okx"], bar, from_ms, to_ms, canonical, tf)
+                parsed = [parse_okx_candle(r, canonical, tf) for r in raw]
+                valid = [c for c in parsed if c]
+                if valid:
+                    await upsert_candles(valid)
+                    log.info(f"[BACKFILL] OKX {canonical} {tf}: {len(valid)} candles")
+
+        except Exception as e:
+            log.error(f"[BACKFILL] Error {provider} {canonical} {tf}: {e}")
+
+        # Small delay between pairs to avoid rate limiting
+        await asyncio.sleep(0.3)
+
+    log.info("[BACKFILL] Historical backfill complete")
 
 
 async def main():
