@@ -222,8 +222,7 @@ async def fetch_okx_candles(
     - Request deduplication
     - Exponential backoff for 429
 
-    OKX uses pagination cursors (not timestamps) for after/before.
-    We fetch in batches from newest to oldest.
+    OKX uses after cursor for backward pagination.
     """
     url = f"{OKX_BASE}/api/v5/market/candles"
     limit = 100
@@ -235,9 +234,8 @@ async def fetch_okx_candles(
             return cached
 
     all_candles = []
-    # OKX pagination: use before cursor to paginate backwards
-    # Start with the before timestamp, then use the oldest candle's timestamp as next before
-    current_before = str(before)
+    # OKX pagination: use after cursor to paginate backwards
+    current_after = str(after)
 
     # 2) Global semaphore for ALL OKX requests (async with = auto release on exception)
     async with OKX_SEMAPHORE:
@@ -245,7 +243,7 @@ async def fetch_okx_candles(
             params = {
                 "instId": inst_id,
                 "bar": bar,
-                "before": current_before,
+                "after": current_after,
                 "limit": str(limit)
             }
             for attempt in range(3):
@@ -268,9 +266,9 @@ async def fetch_okx_candles(
                         if not result:
                             return all_candles
                         all_candles.extend(result)
-                        # Set before cursor to the oldest candle's timestamp for next page
+                        # Set after cursor to the oldest candle's timestamp for next page
                         oldest_ts = result[-1][0]
-                        current_before = str(int(oldest_ts) - 1)
+                        current_after = str(int(oldest_ts) - 1)
                         break
                 except Exception as e:
                     if attempt == 2:
