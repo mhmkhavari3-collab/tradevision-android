@@ -158,41 +158,12 @@ eval(LWC_SCRIPT);
 // ====================================================
 console.log('[TradeVision] v1.0.32 starting...');
 
-// ====================================================
-// GLOBAL ERROR HANDLERS - TOP LEVEL
-// ====================================================
-window.onerror = function(msg, url, line, col, error){
-  console.log("[GLOBAL ERROR]", msg, url, line, col, error);
-  return false;
-};
-window.addEventListener("unhandledrejection", e=>{
-  console.log("[PROMISE ERROR]", e.reason);
-});
-console.log('[BOOT-1] HTML loaded, JS started');
-
-// ====================================================
-// SUBASE CLIENT CREATION - DEFERRED
-// ====================================================
-let supabaseClient = null;
-function getSupabaseClient(){
-  if(!supabaseClient){
-    console.log('[BOOT-3] Creating Supabase client');
-    try{
-      supabaseClient = supabase.createClient('https://mbocedojtnvyfhlclnpm.supabase.co', 'eyJhbG...5Gcs');
-      console.log('[BOOT-3] Supabase client created');
-    }catch(e){
-      console.error('[BOOT-3] Supabase client ERROR:', e);
-    }
-  }
-  return supabaseClient;
-}
-
 /* ============ CONFIG ============ */
 // PROXY removed - all data from Supabase only
 
 // ============ SUPABASE REALTIME CONFIG ============
 const SUPABASE_URL = 'https://mbocedojtnvyfhlclnpm.supabase.co';
-const SUPABASE_KEY = 'eyJhbG...5Gcs';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ib2NlZG9qdG52eWZobGNsbnBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzOTMwNDcsImV4cCI6MjEwMDk2OTA0N30.1m8MCVAHHFCDd4QkspXf959XTulvRYJEBav1CPg5Gcs';
 const SYMBOLS = [
   {sym:'XAUUSD',name:'Gold',display:'XAU/USD',color:'#f0b90b',cat:'METALS',prec:2,minMove:0.01},
   {sym:'XAGUSD',name:'Silver',display:'XAG/USD',color:'#c0c0c0',cat:'METALS',prec:3,minMove:0.001},
@@ -214,18 +185,6 @@ const SYMBOLS = [
 ];
 const TIMEFRAMES = [{id:'1m',l:'1m'},{id:'5m',l:'5m'},{id:'15m',l:'15m'},{id:'30m',l:'30m'},{id:'1h',l:'1h'},{id:'4h',l:'4h'},{id:'1d',l:'1d'},{id:'1W',l:'1W'},{id:'1M',l:'1M'}];
 
-// Timeframe seconds for candle alignment
-function getTimeframeSeconds(tf){
-  if(tf==='1m') return 60;
-  if(tf==='5m') return 300;
-  if(tf==='15m') return 900;
-  if(tf==='30m') return 1800;
-  if(tf==='1h') return 3600;
-  if(tf==='4h') return 14400;
-  if(tf==='1d') return 86400;
-  return 60;
-}
-
 // Timeframe seconds for proper candle aggregation
 // TF_SECONDS removed - tick-based candle building removed
 
@@ -240,8 +199,8 @@ let candleMap = new Map(); // time -> index for O(1) lookup
 let initialLoadSeqId = 0;
 let historyLoadSeqId = 0;
 
-// Single Supabase client for Realtime (reused) - NOW LAZY
-let supabaseClient = null; // Set by getSupabaseClient()
+// Single Supabase client for Realtime (reused)
+let supabaseClient = null;
 
 /* ============ UTILS ============ */
 const fp = (v,p) => v!=null?Number(v).toFixed(p!=null?p:2):'—';
@@ -287,34 +246,18 @@ function showPg(n){
   document.querySelectorAll('.page').forEach(p=>p.className='page');
   document.getElementById('pg'+n).className='page active';
   document.querySelectorAll('.nav-btn').forEach((b,i)=>b.className=['WL','CH','AL','ST'].indexOf(n)===i?'nav-btn active':'nav-btn');
-  
-  // قطع تمام اتصالات قبلی برای جلوگیری از زامبی شدن کانکشن‌ها
-  disconnectWS(); 
-  stopPricePoll(); 
-  stopChartPoll();
-
   if(n==='CH'){
     document.getElementById('hdrSym').textContent=cur.display;
-    
-    // دادن یک تاخیر کوتاه برای رندر شدن CSS و جلوگیری از ارور سایز Canvas
-    setTimeout(() => {
-      initChart(); 
-      loadCandles(cur.sym, CURRENT_TF).then(() => {
-        applyPrecision();
-        connectWS(cur.sym);  // شروع سوکت فقط بعد از لود تاریخچه
-      });
-      startPricePoll();
-    }, 50);
-
-  } else {
-    // پاکسازی کامل چارت از حافظه وقتی در صفحه چارت نیستیم
-    if(chart) {
-      try { chart.remove(); } catch(e) {}
-      chart = null;
-      candleSeries = null;
-      candles = [];
-      candleMap.clear();
-    }
+    initChart(); 
+    loadCandles(cur.sym, CURRENT_TF).then(() => {
+      // Apply precision for current symbol
+      applyPrecision();
+      // Start live stream ONLY after history loaded
+      connectWS(cur.sym);
+    });
+    startPricePoll();
+  }else{
+    disconnectWS(); stopPricePoll(); stopChartPoll();
   }
 }
 
@@ -342,15 +285,10 @@ function goChart(sym){
   disconnectWS();
   stopChartPoll();
   
-  // Clear candle state COMPLETELY
+  // Clear candle state
   candles = [];
-  candleMap.clear(); // FIX 7
+  candleMap.clear(); // FIX 1: Clear map on symbol change
   if(candleSeries) candleSeries.setData([]);
-  if(chart) {
-    try{ chart.remove(); }catch(e){console.error('[goChart] chart.remove error:', e)}
-    chart = null;
-    candleSeries = null;
-  }
   
   // Update current symbol
   cur = s;
@@ -491,10 +429,9 @@ function handleReconnect(sym){
 }
 
 function disconnectWS(){
-  if(supabaseChannel && supabaseClient){
-    try{ supabaseClient.removeChannel(supabaseChannel); }catch(e){}
+  if(supabaseChannel){
+    try{ supabaseChannel.unsubscribe(); }catch(e){}
     supabaseChannel = null;
-    console.log('[WS] Previous Realtime channel disconnected successfully.');
   }
   if(wsReconnectTimer){ clearTimeout(wsReconnectTimer); wsReconnectTimer=null; }
   setWSStatus(false);
@@ -509,12 +446,7 @@ function setWSStatus(connected){
 function initChart(){
   if(chart) return; // Chart instance stays alive
   const el=document.getElementById('chartEl');
-  if(!el){
-    console.error('[initChart] chartEl not found');
-    return;
-  }
-  try{
-    chart=LightweightCharts.createChart(el,{
+  chart=LightweightCharts.createChart(el,{
     width:el.clientWidth,height:el.clientHeight||400,autoSize:true,
     layout:{background:{color:'#0a0e14'},textColor:'#787b86',fontSize:11},
     grid:{vertLines:{color:'#1e222d'},horzLines:{color:'#1e222d'}},
@@ -555,11 +487,6 @@ function initChart(){
   }, 3000);
   // FIX 6: Removed ResizeObserver - using autoSize:true instead
   applyPrecision();
-}catch(e){
-    console.error('[initChart] Error:', e);
-    chart = null;
-    candleSeries = null;
-  }
 }
 function applyPrecision(){if(candleSeries&&cur)candleSeries.applyOptions({priceFormat:{type:'price',precision:cur.prec,minMove:cur.minMove}})}
 
@@ -615,14 +542,10 @@ async function loadCandles(sym,tf){
 
 function setChartData(){
   if(!candleSeries||!candles.length) return;
-  try{
-    candleSeries.setData(candles); // ONLY ONCE for history
-    rebuildCandleMap();
-    chart.timeScale().fitContent();
-    updateChHeader(); updateOHLC();
-  }catch(e){
-    console.error('[setChartData] Error:', e);
-  }
+  candleSeries.setData(candles); // ONLY ONCE for history
+  rebuildCandleMap();
+  chart.timeScale().fitContent();
+  updateChHeader(); updateOHLC();
 }
 
 function updateLiveCandle(price){
@@ -632,19 +555,11 @@ function updateLiveCandle(price){
 }
 
 function updateChartCandle(candleData){
-  // Handle market_candles_v2 Realtime UPDATE event with timestamp alignment
+  // Handle market_candles_v2 Realtime UPDATE event
   // candleData: {canonical_symbol, timeframe, open_time, open, high, low, close, is_closed}
   if(!candleSeries||!candles.length||!candleData) return;
   
-  // 1. Convert timeframe to seconds
-  const tfSeconds = getTimeframeSeconds(CURRENT_TF);
-  
-  // 2. Get raw time from server
-  const rawTime = Math.floor(new Date(candleData.open_time).getTime()/1000);
-  
-  // 3. Align timestamp to timeframe bucket (key fix for choppy candles)
-  const candleTime = Math.floor(rawTime / tfSeconds) * tfSeconds;
-  
+  const candleTime = Math.floor(new Date(candleData.open_time).getTime()/1000);
   const chartCandle = {
     time: candleTime,
     open: Number(candleData.open),
@@ -654,61 +569,48 @@ function updateChartCandle(candleData){
     volume: Number(candleData.volume||0)
   };
   
-  const lastIndex = candles.length - 1;
-  const lastCandle = candles[lastIndex];
+  const last = candles[candles.length-1];
+  const lastTime = last ? last.time : 0;
   const debugTime = new Date(candleTime*1000).toISOString().substr(11,8);
-
-  // Case 1: Update for LAST candle - EXACT aligned timestamp match
-  if(lastCandle && lastCandle.time === candleTime){
-    candles[lastIndex] = chartCandle;
+  
+  // Case 1: Update for LAST candle (most common - same minute)
+  if(last && Math.abs(last.time - chartCandle.time) < 60){
+    candles[candles.length-1] = chartCandle;
     candleSeries.update(chartCandle);
+    candleMap.set(chartCandle.time, candles.length-1);
     console.log(`[RTC] REPLACE last: ${debugTime} C=${chartCandle.close}`);
     updateChHeader(); updateOHLC();
     return;
   }
   
-  // Case 2: Completely NEW candle - append (timestamp strictly greater than last)
-  if(chartCandle.time > lastCandle.time){
-    candles.push(chartCandle);
-    candleMap.set(candleTime, candles.length - 1);
-    candleSeries.update(chartCandle);
-    console.log(`[RTC] APPEND: ${debugTime} C=${chartCandle.close} total=${candles.length}`);
-    if(candles.length > 1000){
-      const removed = candles.shift();
-      candleMap.delete(removed.time);
-      rebuildCandleMap();
-    }
-    updateChHeader(); updateOHLC();
-    return;
-  }
-  
-  // Case 3: Update for candle in MIDDLE of array - EXACT match
-  const idx = candleMap.get(candleTime);
-  if(idx !== undefined && idx >= 0 && idx < lastIndex){
+  // Case 2: Update for candle in MIDDLE of array (non-last)
+  const idx = candleMap.get(chartCandle.time);
+  if(idx !== undefined && idx >= 0 && idx < candles.length){
     candles[idx] = chartCandle;
     candleSeries.update(chartCandle);
     console.log(`[RTC] REPLACE mid[${idx}]: ${debugTime} C=${chartCandle.close}`);
     updateChHeader(); updateOHLC();
     return;
   }
-}
-    if(chartCandle.time > lastTime){
-      candles.push(chartCandle);
-      candleMap.set(chartCandle.time, candles.length-1);
-      candleSeries.update(chartCandle);
-      console.log(`[RTC] APPEND: ${debugTime} C=${chartCandle.close} total=${candles.length}`);
-      if(candles.length > 1000){
-        const removed = candles.shift();
-        candleMap.delete(removed.time);
-        rebuildCandleMap(); // Rebuild after shift
-      }
-      updateChHeader(); updateOHLC();
-      return;
+  
+  // Case 3: Completely NEW candle - append
+  if(chartCandle.time > lastTime){
+    candles.push(chartCandle);
+    candleMap.set(chartCandle.time, candles.length-1);
+    candleSeries.update(chartCandle);
+    console.log(`[RTC] APPEND: ${debugTime} C=${chartCandle.close} total=${candles.length}`);
+    if(candles.length > 1000){
+      const removed = candles.shift();
+      candleMap.delete(removed.time);
+      rebuildCandleMap(); // Rebuild after shift
     }
-
-    // Case 4: Candle is OLDER than last - log but ignore
-    console.log(`[RTC] STALE: ${debugTime} (last=${new Date(lastTime*1000).toISOString().substr(11,8)})`);
+    updateChHeader(); updateOHLC();
+    return;
   }
+  
+  // Case 4: Candle is OLDER than last - log but ignore
+  console.log(`[RTC] STALE: ${debugTime} (last=${new Date(lastTime*1000).toISOString().substr(11,8)})`);
+}
 
 function updateOHLC(){
   const last=candles[candles.length-1]; if(!last) return;
@@ -769,28 +671,14 @@ async function loadMoreHistory(){
     })).filter(c => !candleMap.has(c.time) && !isNaN(c.open));
     
     if(nc.length){
-      // ۱. ذخیره موقعیت فعلی دید کاربر قبل از تغییر دیتاسِت
-      const visibleRange = chart.timeScale().getVisibleLogicalRange();
-      
-      // ۲. ترکیب آرایه‌ها (دیتای جدید در ابتدا قرار می‌گیرد)
       candles = nc.concat(candles);
+      candleSeries.setData(candles);
       rebuildCandleMap();
-      
-      // ۳. آپدیت یکپارچه کل چارت (اینجا حتماً باید setData باشد)
-      candleSeries.setData(candles); 
-      
-      // ۴. جبران شیفتِ آرایه: برگرداندن اسکرول دقیقاً به همان جایی که کاربر بود
-      if(visibleRange){
-        chart.timeScale().setVisibleLogicalRange({
-          from: visibleRange.from + nc.length,
-          to: visibleRange.to + nc.length
-        });
-      }
-      
+      // Don't restore position - user stays at latest data
+      // They can scroll left to see older candles
       console.log(`[loadMoreHistory] PREPEND: +${nc.length} candles, total=${candles.length}`);
       toast('+'+nc.length+' candles');
-      
-      // ۵. بررسی اینکه آیا کاربر هنوز به ته چارت چسبیده است یا خیر
+      // Check if we're still near left edge after prepend - if so, load more
       setTimeout(()=>{
         if(chart && !loadingMore){
           const vr = chart.timeScale().getVisibleLogicalRange();
@@ -805,41 +693,22 @@ async function loadMoreHistory(){
     document.getElementById('loadInd').className='load-ind';
   }
 }
+
 function retryChart(){loadCandles(cur.sym,CURRENT_TF)}
 
 /* ============ TIMEFRAME ============ */
-function buildTFBar(){let h='';TIMEFRAMES.forEach(t=>{h+='<div class="tf-btn'+(t.id===CURRENT_TF?' active':'')+'" data-tf="'+t.id+'" onclick="setTF(\\''+t.id+'\\')">'+t.l+'</div>'});document.getElementById('tfBar').innerHTML=h}
-
+function buildTFBar(){let h='';TIMEFRAMES.forEach(t=>{h+='<div class="tf-btn'+(t.id===CURRENT_TF?' active':'')+'" data-tf="'+t.id+'" onclick="setTF(\''+t.id+'\')">'+t.l+'</div>'});document.getElementById('tfBar').innerHTML=h}
 function setTF(tf){
-  // اگر در صفحه چارت نیستیم، اصلا نیازی به اجرای این تابع نیست
-  if(page !== 'CH') return; 
-
-  CURRENT_TF=tf;
+  CURRENT_TF=tf; 
   buildTFBar();
-  
-  // قطع کامل اتصالات و تایمرهای قبلی تایم‌فریم گذشته
-  disconnectWS();
-  stopChartPoll();
-
-  // پاکسازی چارت قبلی
+  // Clear chart and reload for new timeframe
   if(chart && candleSeries){
-    candleSeries.setData([]); 
+    candleSeries.setData([]);  // Clear old candles
     candles = [];
-    candleMap.clear();
-    try{ chart.remove(); }catch(e){console.error('[setTF] chart.remove error:', e)}
-    chart = null;
-    candleSeries = null;
+    candleMap.clear(); // FIX 1: Clear map on timeframe change
   }
-  
-  // ساخت مجدد کانتینر چارت برای تایم‌فریم جدید
-  initChart();
-
-  const mySeq=++initialLoadSeqId;
   loadCandles(cur.sym, tf).then(() => {
-    // اتصال مجدد سوکت تنها در صورتی که کاربر همچنان در صفحه چارت باشد
-    if(page==='CH' && mySeq===initialLoadSeqId) {
-        connectWS(cur.sym);
-    }
+    if(page==='CH') connectWS(cur.sym);
   });
 }
 
@@ -857,20 +726,17 @@ function testSupabase(){
 
 /* ============ INIT ============ */
 function init(){
-  console.log('[BOOT] started');
   // UI FIRST - buttons work immediately
-  try{buildWL(); console.log('[BOOT] watchlist ok');}catch(e){console.error('[BOOT] watchlist error:', e)}
-  try{buildTFBar(); console.log('[BOOT] tfbar ok');}catch(e){console.error('[BOOT] tfbar error:', e)}
+  buildWL(); buildTFBar();
   
   // Network LAST - isolated from UI
-  try{fetchPrices(); startPricePoll(); console.log('[BOOT] prices ok');}catch(e){console.error('[BOOT] prices error:', e)}
+  try{fetchPrices(); startPricePoll();}catch(e){}
   
   history.pushState(null,'',location.href);
   window.addEventListener('popstate',()=>history.pushState(null,'',location.href));
   document.addEventListener('touchmove',e=>{if(e.target===document.body||e.target===document.getElementById('app'))e.preventDefault()},{passive:false});
   document.body.style.touchAction='none';document.body.style.overscrollBehavior='none';
   document.documentElement.style.overscrollBehavior='none';
-  console.log('[BOOT] complete');
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 </script>
