@@ -482,7 +482,7 @@ function initChart(){
   });
   chart.timeScale().subscribeVisibleLogicalRangeChange(r=>{
     if(!r||!candles||candles.length<2) return;
-    console.log(`[scroll] visible range: from=${r.from.toFixed(2)} to=${r.to.toFixed(2)} candles=${candles.length}`);
+    console.log(`[HISTORY_TRIGGER] visibleFrom=${r.from.toFixed(2)} visibleTo=${r.to.toFixed(2)} candlesLength=${candles.length}`);
     // Trigger when user scrolls near left edge (within 20 bars)
     if(r.from<=20 && !loadingMore) loadMoreHistory();
   });
@@ -646,32 +646,27 @@ function stopChartPoll(){
 
 async function loadMoreHistory(){
   if(!cur||loadingMore||!candles.length) return; loadingMore=true;
-  const oldest=candles[0].time, mySeq=++historyLoadSeqId; // FIX 7: Use historyLoadSeqId
+  const oldest=candles[0].time, mySeq=++historyLoadSeqId;
   const oldestDate = new Date(oldest*1000).toISOString();
-  console.log(`[loadMoreHistory] START: oldest=${oldestDate}, candles_before=${candles.length}`);
+  console.log(`[HISTORY_REQUEST] symbol=${cur.sym} timeframe=${CURRENT_TF} oldestTime=${oldestDate}`);
   document.getElementById('loadInd').className='load-ind active';
 
-  // Normalize to canonical symbol
   const canonSym = normalizeSymbol(cur.sym);
 
   try{
-    // URL encode the timestamp for Supabase query
     const oldestISO = new Date(oldest*1000).toISOString();
     const oldestEnc = encodeURIComponent(oldestISO);
     const url = `${SUPABASE_URL}/rest/v1/market_candles?canonical_symbol=eq.${canonSym}&timeframe=eq.${CURRENT_TF}&open_time=lt.${oldestEnc}&order=open_time.desc&limit=300`;
-    console.log(`[loadMoreHistory] URL: ${url}`);
     const r = await fetch(url, {headers:{'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY}});
-    console.log(`[loadMoreHistory] Response: ${r.status} ${r.statusText}`);
+    console.log(`[HISTORY_RESPONSE] count=${r.status} ${r.statusText}`);
     if(!r.ok){ throw new Error(`HTTP ${r.status}`); }
     const data = await r.json();
     if(mySeq!==historyLoadSeqId||!data||!data.length){
-      console.log(`[loadMoreHistory] NO DATA: rows=${data?data.length:0}`);
+      console.log(`[HISTORY_END] No more candles`);
       loadingMore=false;
       document.getElementById('loadInd').className='load-ind';
       return;
     }
-    // Convert and reverse (Supabase returns desc, we need oldest first for prepend)
-    // FIX 4: Use candleMap.has() for O(1) duplicate detection
     const nc = data.reverse().map(c => ({
       time: Math.floor(new Date(c.open_time).getTime()/1000),
       open: Number(c.open),
@@ -680,22 +675,22 @@ async function loadMoreHistory(){
       close: Number(c.close),
       volume: Number(c.volume||0)
     })).filter(c => !candleMap.has(c.time) && !isNaN(c.open));
-    
+
     if(nc.length){
+      const prevLen = candles.length;
       candles = nc.concat(candles);
       candleSeries.setData(candles);
       rebuildCandleMap();
-      // Don't restore position - user stays at latest data
-      // They can scroll left to see older candles
-      console.log(`[loadMoreHistory] PREPEND: +${nc.length} candles, total=${candles.length}`);
+      console.log(`[HISTORY_PREPEND] +${nc.length} candles, total=${candles.length}`);
       toast('+'+nc.length+' candles');
-      // Check if we're still near left edge after prepend - if so, load more
       setTimeout(()=>{
         if(chart && !loadingMore){
           const vr = chart.timeScale().getVisibleLogicalRange();
           if(vr && vr.from <= 20) loadMoreHistory();
         }
       }, 200);
+    }else{
+      console.log(`[HISTORY_END] No more candles (all duplicates)`);
     }
   }catch(e){
     console.error('[loadMoreHistory] Error:', e);
