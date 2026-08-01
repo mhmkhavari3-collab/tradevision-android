@@ -397,7 +397,7 @@ function initChart(){
     layout:{background:{color:'#0a0e14'},textColor:'#787b86',fontSize:11},
     grid:{vertLines:{color:'#1e222d'},horzLines:{color:'#1e222d'}},
     crosshair:{mode:LightweightCharts.CrosshairMode.Normal},
-    timeScale:{timeVisible:true,secondsVisible:false,rightOffset:5,barSpacing:6,fixLeftEdge:false,fixRightEdge:false,shiftVisibleRangeOnNewBar:false},
+    timeScale:{timeVisible:true,secondsVisible:false,rightOffset:5,barSpacing:8,minBarSpacing:1,fixLeftEdge:false,fixRightEdge:false,shiftVisibleRangeOnNewBar:false},
     rightPriceScale:{borderVisible:false,autoScale:true},
     handleScroll:{vertTouchDrag:true,horzTouchDrag:true,mouseWheel:true,pressedMouseMove:true,horzDrag:true},
     handleScale:{axisPressedMouseMove:{time:true,price:true},mouseWheel:true,pinch:true,resetDoubleTap:true}
