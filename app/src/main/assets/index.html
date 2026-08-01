@@ -594,8 +594,13 @@ async function loadMoreHistory(){
   const canonSym = normalizeSymbol(cur.sym);
 
   try{
-    const url = `${SUPABASE_URL}/rest/v1/market_candles_v2?canonical_symbol=eq.${canonSym}&timeframe=eq.${CURRENT_TF}&open_time=lt.${new Date(oldest*1000).toISOString()}&order=open_time.desc&limit=300`;
+    // URL encode the timestamp for Supabase query
+    const oldestISO = new Date(oldest*1000).toISOString();
+    const oldestEnc = encodeURIComponent(oldestISO);
+    const url = `${SUPABASE_URL}/rest/v1/market_candles_v2?canonical_symbol=eq.${canonSym}&timeframe=eq.${CURRENT_TF}&open_time=lt.${oldestEnc}&order=open_time.desc&limit=300`;
+    console.log(`[loadMoreHistory] URL: ${url}`);
     const r = await fetch(url, {headers:{'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY}});
+    console.log(`[loadMoreHistory] Response: ${r.status} ${r.statusText}`);
     if(!r.ok){ throw new Error(`HTTP ${r.status}`); }
     const data = await r.json();
     if(mySeq!==seqId||!data||!data.length){
