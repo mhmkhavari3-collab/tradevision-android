@@ -221,15 +221,12 @@ async def fetch_okx_candles(
     - Cache with TTL per timeframe
     - Request deduplication
     - Exponential backoff for 429
+
+    OKX uses pagination cursors (not timestamps) for after/before.
+    We fetch in batches from newest to oldest.
     """
-    url = f"{OKX_BASE}/api/v5/market/history-candles"
-    params = {
-        "instId": inst_id,
-        "bar": bar,
-        "after": str(after),
-        "before": str(before),
-        "limit": "100"
-    }
+    url = f"{OKX_BASE}/api/v5/market/candles"
+    limit = 100
 
     # 1) Check cache first
     if symbol and tf:
@@ -237,35 +234,55 @@ async def fetch_okx_candles(
         if cached is not None:
             return cached
 
+    all_candles = []
+    # OKX pagination: use before cursor to paginate backwards
+    # Start with the before timestamp, then use the oldest candle's timestamp as next before
+    current_before = str(before)
+
     # 2) Global semaphore for ALL OKX requests (async with = auto release on exception)
     async with OKX_SEMAPHORE:
-        for attempt in range(3):
-            try:
-                async with session.get(url, params=params) as resp:
-                    if resp.status == 429:
-                        wait = [5, 15, 60][attempt]
-                        log.warning(f"[OKX 429] {inst_id} {bar} | retry {attempt+1}/3 | wait {wait}s")
-                        await asyncio.sleep(wait)
-                        continue
-                    if resp.status != 200:
-                        text = await resp.text()
-                        log.error(f"[OKX ERROR] {inst_id} {bar} | HTTP {resp.status} | {text[:200]}")
-                        return []
-                    data = await resp.json()
-                    if data.get("code") != "0":
-                        log.error(f"[OKX API ERROR] {inst_id} {bar} | {data}")
-                        return []
-                    result = data.get("data", [])
-                    # 3) Store in cache
-                    if symbol and tf:
-                        _cache_set(symbol, tf, result)
-                    return result
-            except Exception as e:
-                if attempt == 2:
-                    log.error(f"[OKX FETCH FAILED] {inst_id} {bar} after 3 attempts: {e}")
-                    return []
-                await asyncio.sleep(2 ** attempt)
-    return []
+        for page in range(5):  # Max 5 pages (500 candles)
+            params = {
+                "instId": inst_id,
+                "bar": bar,
+                "before": current_before,
+                "limit": str(limit)
+            }
+            for attempt in range(3):
+                try:
+                    async with session.get(url, params=params) as resp:
+                        if resp.status == 429:
+                            wait = [5, 15, 60][attempt]
+                            log.warning(f"[OKX 429] {inst_id} {bar} | retry {attempt+1}/3 | wait {wait}s")
+                            await asyncio.sleep(wait)
+                            continue
+                        if resp.status != 200:
+                            text = await resp.text()
+                            log.error(f"[OKX ERROR] {inst_id} {bar} | HTTP {resp.status} | {text[:200]}")
+                            return all_candles if all_candles else []
+                        data = await resp.json()
+                        if data.get("code") != "0":
+                            log.error(f"[OKX API ERROR] {inst_id} {bar} | {data}")
+                            return all_candles if all_candles else []
+                        result = data.get("data", [])
+                        if not result:
+                            return all_candles
+                        all_candles.extend(result)
+                        # Set before cursor to the oldest candle's timestamp for next page
+                        oldest_ts = result[-1][0]
+                        current_before = str(int(oldest_ts) - 1)
+                        break
+                except Exception as e:
+                    if attempt == 2:
+                        log.error(f"[OKX FETCH FAILED] {inst_id} {bar} after 3 attempts: {e}")
+                        return all_candles if all_candles else []
+                    await asyncio.sleep(2 ** attempt)
+
+    # 3) Store in cache
+    if symbol and tf and all_candles:
+        _cache_set(symbol, tf, all_candles)
+
+    return all_candles
 
 
 def parse_okx_candle(raw: List, canonical: str, tf: str) -> Optional[Candle]:
@@ -537,7 +554,7 @@ async def backfill_historical(session: aiohttp.ClientSession):
     # Round-robin: process each pair one at a time
     for idx, (provider, canonical, config, tf) in enumerate(pairs):
         try:
-            if provider == "oanda" and config["oanda"]:
+            if provider == "oanda":
                 instrument = config["oanda"]
                 granularity = TF_OANDA[tf]
                 to_time = datetime.now(timezone.utc)
@@ -549,7 +566,7 @@ async def backfill_historical(session: aiohttp.ClientSession):
                     await upsert_candles(valid)
                     log.info(f"[BACKFILL] OANDA {canonical} {tf}: {len(valid)} candles")
 
-            elif provider == "okx" and config["okx"]:
+            elif provider == "okx":
                 bar = TF_OKX[tf]
                 to_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
                 from_ms = to_ms - (30 * 24 * 60 * 60 * 1000)
