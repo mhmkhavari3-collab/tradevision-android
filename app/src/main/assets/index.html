@@ -196,6 +196,11 @@ let wsConn = null, wsReconnectTimer = null;
 let pricePollTimer = null, chartPollTimer = null;
 let loadingMore = false, seqId = 0;
 let candleMap = new Map(); // time -> index for O(1) lookup
+let initialLoadSeqId = 0;
+let historyLoadSeqId = 0;
+
+// Single Supabase client for Realtime (reused)
+let supabaseClient = null;
 
 /* ============ UTILS ============ */
 const fp = (v,p) => v!=null?Number(v).toFixed(p!=null?p:2):'—';
@@ -282,6 +287,7 @@ function goChart(sym){
   
   // Clear candle state
   candles = [];
+  candleMap.clear(); // FIX 1: Clear map on symbol change
   if(candleSeries) candleSeries.setData([]);
   
   // Update current symbol
@@ -320,13 +326,23 @@ function stopPricePoll(){if(pricePollTimer){clearInterval(pricePollTimer);priceP
 /* ============ SUPABASE REALTIME ============ */
 let supabaseChannel = null;
 
+// FIX 5: Realtime reconnect state
+let wsReconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const RECONNECT_DELAY_MS = 3000;
+
 function connectWS(sym){
   disconnectWS();
   
   try{
     const rtUrl = 'https://mbocedojtnvyfhlclnpm.supabase.co';
     const rtKey = SUPABASE_KEY;
-    const supabaseClient = supabase.createClient(rtUrl, rtKey);
+    
+    // FIX 5: Reuse single Supabase client
+    if(!supabaseClient){
+      supabaseClient = supabase.createClient(rtUrl, rtKey);
+    }
+    
     supabaseChannel = supabaseClient.channel('market-realtime');
     
     // 1. Subscribe to market_prices UPDATE events (all 17 symbols)
@@ -376,13 +392,40 @@ function connectWS(sym){
     supabaseChannel.subscribe((status) => {
       console.log('[Supabase] Realtime status:', status);
       setWSStatus(status === 'SUBSCRIBED');
+      
+      // FIX 5: Reconnect logic
+      if(status === 'SUBSCRIBED'){
+        wsReconnectAttempts = 0;
+        console.log('[Supabase] Realtime connected, subscribed to market_prices + market_candles_v2');
+      }else if(status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT'){
+        handleReconnect(sym);
+      }
     });
     
-    console.log('[Supabase] Realtime subscribed to market_prices + market_candles_v2');
   }catch(e){
     console.error('[Supabase] Realtime error:', e);
     setWSStatus(false);
+    handleReconnect(sym);
   }
+}
+
+// FIX 5: Auto-reconnect handler
+function handleReconnect(sym){
+  if(wsReconnectAttempts >= MAX_RECONNECT_ATTEMPTS){
+    console.error('[Supabase] Max reconnect attempts reached');
+    setWSStatus(false);
+    return;
+  }
+  wsReconnectAttempts++;
+  const delay = RECONNECT_DELAY_MS * wsReconnectAttempts;
+  console.log(`[Supabase] Reconnecting in ${delay}ms (attempt ${wsReconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+  
+  if(wsReconnectTimer){ clearTimeout(wsReconnectTimer); }
+  wsReconnectTimer = setTimeout(()=>{
+    if(page === 'CH' && cur){
+      connectWS(sym);
+    }
+  }, delay);
 }
 
 function disconnectWS(){
@@ -442,7 +485,7 @@ function initChart(){
       if(vr && vr.from <= 15) loadMoreHistory();
     }catch(e){console.log('[poll] error:', e)}
   }, 3000);
-  var rt=null;new ResizeObserver(()=>{if(rt)clearTimeout(rt);rt=setTimeout(()=>{if(chart&&el)chart.applyOptions({width:el.clientWidth,height:el.clientHeight})},100)}).observe(el);
+  // FIX 6: Removed ResizeObserver - using autoSize:true instead
   applyPrecision();
 }
 function applyPrecision(){if(candleSeries&&cur)candleSeries.applyOptions({priceFormat:{type:'price',precision:cur.prec,minMove:cur.minMove}})}
@@ -450,7 +493,9 @@ function applyPrecision(){if(candleSeries&&cur)candleSeries.applyOptions({priceF
 // OANDA/OKX direct access removed - all data from Supabase only
 
 async function loadCandles(sym,tf){
-  const mySeq=++seqId; candles=[];
+  const mySeq=++initialLoadSeqId; // FIX 7: Use initialLoadSeqId
+  candleMap.clear(); // FIX 1: Clear map on new load
+  candles=[];
   document.getElementById('loadInd').className='load-ind active';
   document.getElementById('errOverlay').className='err-overlay hidden';
 
@@ -483,7 +528,7 @@ async function loadCandles(sym,tf){
     })).filter((c,i,a)=>i===0 || a[i-1].time !== c.time);
     
     document.getElementById('loadInd').className='load-ind';
-    if(mySeq!==seqId) return;
+    if(mySeq!==initialLoadSeqId) return; // FIX 7: Check initialLoadSeqId
     setChartData();
     applyPrecision();
     return true;
@@ -540,7 +585,7 @@ function updateChartCandle(candleData){
   
   // Case 2: Update for candle in MIDDLE of array (non-last)
   const idx = candleMap.get(chartCandle.time);
-  if(idx !== undefined && idx >= 0 && idx < candles.length - 1){
+  if(idx !== undefined && idx >= 0 && idx < candles.length){
     candles[idx] = chartCandle;
     candleSeries.update(chartCandle);
     console.log(`[RTC] REPLACE mid[${idx}]: ${debugTime} C=${chartCandle.close}`);
@@ -583,11 +628,14 @@ function updateChHeader(){
 }
 
 function startChartPoll(){/* REMOVED: 30s reload was corrupting chart */}
-function stopChartPoll(){if(chartPollTimer){clearInterval(chartPollTimer);chartPollTimer=null}}
+function stopChartPoll(){
+  if(chartPollTimer){clearInterval(chartPollTimer);chartPollTimer=null}
+  if(window._chartPollInterval){clearInterval(window._chartPollInterval);window._chartPollInterval=null} // FIX 2
+}
 
 async function loadMoreHistory(){
   if(!cur||loadingMore||!candles.length) return; loadingMore=true;
-  const oldest=candles[0].time, mySeq=++seqId;
+  const oldest=candles[0].time, mySeq=++historyLoadSeqId; // FIX 7: Use historyLoadSeqId
   const oldestDate = new Date(oldest*1000).toISOString();
   console.log(`[loadMoreHistory] START: oldest=${oldestDate}, candles_before=${candles.length}`);
   document.getElementById('loadInd').className='load-ind active';
@@ -605,13 +653,14 @@ async function loadMoreHistory(){
     console.log(`[loadMoreHistory] Response: ${r.status} ${r.statusText}`);
     if(!r.ok){ throw new Error(`HTTP ${r.status}`); }
     const data = await r.json();
-    if(mySeq!==seqId||!data||!data.length){
+    if(mySeq!==historyLoadSeqId||!data||!data.length){
       console.log(`[loadMoreHistory] NO DATA: rows=${data?data.length:0}`);
       loadingMore=false;
       document.getElementById('loadInd').className='load-ind';
       return;
     }
     // Convert and reverse (Supabase returns desc, we need oldest first for prepend)
+    // FIX 4: Use candleMap.has() for O(1) duplicate detection
     const nc = data.reverse().map(c => ({
       time: Math.floor(new Date(c.open_time).getTime()/1000),
       open: Number(c.open),
@@ -619,7 +668,7 @@ async function loadMoreHistory(){
       low: Number(c.low),
       close: Number(c.close),
       volume: Number(c.volume||0)
-    })).filter(c => !candles.some(e => e.time === c.time) && !isNaN(c.open));
+    })).filter(c => !candleMap.has(c.time) && !isNaN(c.open));
     
     if(nc.length){
       candles = nc.concat(candles);
@@ -656,6 +705,7 @@ function setTF(tf){
   if(chart && candleSeries){
     candleSeries.setData([]);  // Clear old candles
     candles = [];
+    candleMap.clear(); // FIX 1: Clear map on timeframe change
   }
   loadCandles(cur.sym, tf).then(() => {
     if(page==='CH') connectWS(cur.sym);
