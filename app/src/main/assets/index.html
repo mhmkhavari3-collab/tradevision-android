@@ -511,18 +511,15 @@ function updateChartCandle(candleData){
     volume: Number(candleData.volume||0)
   };
   
-  if(last && last.time === chartCandle.time){
-    // Same candle - update in place (replace reference)
+  // Match: exact time OR within 60s (for timezone rounding)
+  if(last && Math.abs(last.time - chartCandle.time) < 60){
+    // Same candle - update in place
     candles[candles.length-1] = chartCandle;
     candleSeries.update(chartCandle);
-    console.log(`[updateChartCandle] REPLACE: ${new Date(chartCandle.time*1000).toISOString()} O=${chartCandle.open} H=${chartCandle.high} L=${chartCandle.low} C=${chartCandle.close}`);
   }else if(last && chartCandle.time > last.time){
     // New candle - append
     candles.push(chartCandle);
     candleSeries.update(chartCandle);
-    console.log(`[updateChartCandle] APPEND: ${new Date(chartCandle.time*1000).toISOString()} O=${chartCandle.open} H=${chartCandle.high} L=${chartCandle.low} C=${chartCandle.close}`);
-    // Keep max 1000 candles
-    if(candles.length > 1000) candles.shift();
   }
   updateChHeader();
   updateOHLC();
@@ -578,16 +575,11 @@ async function loadMoreHistory(){
     })).filter(c => !candles.some(e => e.time === c.time) && !isNaN(c.open));
     
     if(nc.length){
-      // Save current visible range before prepend
-      const visibleRange = chart.timeScale().getVisibleLogicalRange();
       candles = nc.concat(candles);
       candleSeries.setData(candles);
-      // Restore visible range - shift by number of new candles
-      if(visibleRange){
-        const newRange = { from: visibleRange.from + nc.length, to: visibleRange.to + nc.length };
-        chart.timeScale().setVisibleLogicalRange(newRange);
-      }
-      console.log(`[loadMoreHistory] PREPEND: +${nc.length} candles, total=${candles.length}, newest_old=${nc[0]?new Date(nc[0].time*1000).toISOString():'?'}, oldest_new=${nc[nc.length-1]?new Date(nc[nc.length-1].time*1000).toISOString():'?'}`);
+      // Don't restore position - user stays at latest data
+      // They can scroll left to see older candles
+      console.log(`[loadMoreHistory] PREPEND: +${nc.length} candles, total=${candles.length}`);
       toast('+'+nc.length+' candles');
       // Check if we're still near left edge after prepend - if so, load more
       setTimeout(()=>{
