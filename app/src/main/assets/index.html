@@ -194,9 +194,9 @@ const SYMBOLS = [
   {sym:'EURGBP',name:'EUR/GBP',display:'EUR/GBP',color:'#003399',cat:'FOREX',prec:5,minMove:0.00001},
   {sym:'EURJPY',name:'EUR/JPY',display:'EUR/JPY',color:'#003399',cat:'FOREX',prec:3,minMove:0.001},
   {sym:'GBPJPY',name:'GBP/JPY',display:'GBP/JPY',color:'#C8102E',cat:'FOREX',prec:3,minMove:0.001},
-  {sym:'BTC-USDT',name:'Bitcoin',display:'BTC/USDT',color:'#f7931a',cat:'CRYPTO',prec:2,minMove:0.01},
-  {sym:'ETH-USDT',name:'Ethereum',display:'ETH/USDT',color:'#627eea',cat:'CRYPTO',prec:2,minMove:0.01},
-  {sym:'SOL-USDT',name:'Solana',display:'SOL/USDT',color:'#9945ff',cat:'CRYPTO',prec:2,minMove:0.01},
+  {sym:'BTC',name:'Bitcoin',display:'BTC/USDT',color:'#f7931a',cat:'CRYPTO',prec:2,minMove:0.01},
+  {sym:'ETH',name:'Ethereum',display:'ETH/USDT',color:'#627eea',cat:'CRYPTO',prec:2,minMove:0.01},
+  {sym:'SOL',name:'Solana',display:'SOL/USDT',color:'#9945ff',cat:'CRYPTO',prec:2,minMove:0.01},
 ];
 const TIMEFRAMES = [{id:'1m',l:'1m'},{id:'5m',l:'5m'},{id:'15m',l:'15m'},{id:'30m',l:'30m'},{id:'1h',l:'1h'},{id:'4h',l:'4h'},{id:'1d',l:'1d'},{id:'1W',l:'1W'},{id:'1M',l:'1M'}];
 
@@ -270,9 +270,10 @@ function buildWL(){
     h+='<div class="wl-group">'+cat+'</div>';
     SYMBOLS.filter(s=>s.cat===cat).forEach(s=>{
       const p=prices[s.sym]||{}; const last=p.mid!=null?Number(p.mid):0;
-      const open=p.open!=null?Number(p.open):0; const chg=open>0?((last-open)/open*100):0;
+      const prev=p.prev!=null?Number(p.prev):0;
+      const chg=prev>0?((last-prev)/prev*100):0;
       const c=chg>0?'up':chg<0?'dn':'';
-      h+='<div class="wl-row" onclick="goChart(\''+s.sym+'\')"><div class="wl-sym">'+s.display+'</div><div class="wl-name">'+s.name+'</div><div class="wl-price '+(c||'')+'">'+(last?fp(last,s.prec):'<span class="wl-loading">—</span>')+'</div><div class="wl-chg '+(c||'')+'">'+(last?pct(chg):'')+'</div></div>';
+      h+='<div class="wl-row" onclick="goChart(\''+s.sym+'\')"><div class="wl-sym">'+s.display+'</div><div class="wl-name">'+s.name+'</div><div class="wl-price '+(c||'')+'">'+(last?fp(last,s.prec):'<span class="wl-loading">—</span>')+'</div><div class="wl-chg '+(c||'')+'">'+(last&&prev?pct(chg):'')+'</div></div>';
     });
   });
   document.getElementById('wlList').innerHTML=h;
@@ -297,14 +298,27 @@ function goChart(sym){
   showPg('CH');
 }
 function fetchPrices(){
-  const oSyms=SYMBOLS.filter(s=>s.cat!=='CRYPTO').map(s=>s.sym);
-  if(!oSyms.length) return;
-  fetch(PROXY+'/price?symbols='+oSyms.join(',')).then(r=>r.json()).then(d=>{
-    if(!d.prices) return;
-    d.prices.forEach(p=>{if(p.mid!=null){const old=prices[p.symbol]||{};prices[p.symbol]={mid:p.mid,bid:p.bid,ask:p.ask,open:p.open||old.open,time:p.time}}});
+  // Fetch all 17 symbols from Supabase market_prices (canonical_symbol)
+  const url = `${SUPABASE_URL}/rest/v1/market_prices?select=canonical_symbol,mid_price,bid,ask,updated_at`;
+  fetch(url, {headers:{'apikey': SUPABASE_KEY}}).then(r=>r.json()).then(data=>{
+    if(!data) return;
+    data.forEach(p=>{
+      if(p.mid_price != null){
+        const old = prices[p.canonical_symbol] || {};
+        // Store previous price for change comparison
+        const prevMid = old.mid != null ? old.mid : null;
+        prices[p.canonical_symbol] = {
+          mid: p.mid_price,
+          bid: p.bid,
+          ask: p.ask,
+          prev: prevMid || p.mid_price,  // First load: prev = current
+          time: p.updated_at ? new Date(p.updated_at).getTime() : Date.now()
+        };
+      }
+    });
     if(page==='WL') buildWL();
     if(page==='CH') updateChHeader();
-  }).catch(()=>{});
+  }).catch(e=>console.error('[fetchPrices] Error:', e));
 }
 function startPricePoll(){stopPricePoll();fetchPrices();pricePollTimer=setInterval(fetchPrices,5000)}
 function stopPricePoll(){if(pricePollTimer){clearInterval(pricePollTimer);pricePollTimer=null}}
@@ -314,36 +328,50 @@ let supabaseChannel = null;
 
 function connectWS(sym){
   disconnectWS();
-  if(!sym) return;
-  
-  // Use realtime URL from config (Supabase)
-  const rtUrl = getRealtimeUrl();
-  const rtKey = SUPABASE_KEY;
   
   try{
+    const rtUrl = 'https://mbocedojtnvyfhlclnpm.supabase.co';
+    const rtKey = SUPABASE_KEY;
     const supabaseClient = supabase.createClient(rtUrl, rtKey);
-    supabaseChannel = supabaseClient.channel('market-ticks');
+    supabaseChannel = supabaseClient.channel('market-prices-realtime');
     
-    supabaseChannel.on('broadcast', { event: 'tick' }, ({ payload }) => {
-      if(payload && payload.price != null){
-        const s = payload.symbol || 'XAUUSD';
-        console.log('[Supabase TICK]', s, payload.price, 'cur=', cur.sym);
-        if(s === cur.sym){
-          prices[s] = { mid: payload.price, time: payload.timestamp || Date.now() };
-          updateLiveCandle(payload.price);
+    // Subscribe to market_prices UPDATE events (all 17 symbols)
+    supabaseChannel.on('postgres_changes', { 
+      event: 'UPDATE', 
+      schema: 'public', 
+      table: 'market_prices'
+    }, (payload) => {
+      const p = payload.new;
+      if(p && p.canonical_symbol && p.mid_price != null){
+        const s = p.canonical_symbol;
+        const old = prices[s] || {};
+        // Track previous price for green/red comparison
+        const prevMid = old.mid != null ? old.mid : null;
+        prices[s] = {
+          mid: p.mid_price,
+          bid: p.bid,
+          ask: p.ask,
+          prev: prevMid || p.mid_price,
+          time: p.updated_at ? new Date(p.updated_at).getTime() : Date.now()
+        };
+        // Update chart header if viewing this symbol
+        if(page==='CH' && cur && s === cur.sym){
+          updateLiveCandle(p.mid_price);
           updateChHeader();
         }
+        // Update watchlist if visible
+        if(page==='WL') buildWL();
       }
     });
     
     supabaseChannel.subscribe((status) => {
-      console.log('[Supabase] Channel status:', status);
+      console.log('[Supabase] market_prices status:', status);
       setWSStatus(status === 'SUBSCRIBED');
     });
     
-    console.log('[Supabase] Realtime connected for', sym, 'via', rtUrl);
+    console.log('[Supabase] Realtime subscribed to market_prices');
   }catch(e){
-    console.error('[Supabase] Init error:', e);
+    console.error('[Supabase] Realtime error:', e);
     setWSStatus(false);
   }
 }
@@ -411,19 +439,21 @@ async function loadCandles(sym,tf){
   const canonSym = normalizeSymbol(sym);
 
   try{
-    const url = `${SUPABASE_URL}/rest/v1/market_candles_v2?canonical_symbol=eq.${canonSym}&timeframe=eq.${tf}&order=open_time.asc&limit=300`;
+    // Get newest 300 candles (desc), then reverse for chart (asc)
+    const url = `${SUPABASE_URL}/rest/v1/market_candles_v2?canonical_symbol=eq.${canonSym}&timeframe=eq.${tf}&order=open_time.desc&limit=300`;
     const r = await fetch(url, {headers:{'apikey': SUPABASE_KEY}});
     if(!r.ok){ throw new Error(`HTTP ${r.status}`); }
     const data = await r.json();
-    if(mySeq!==seqId) return;
-    if(!data || !data.length){
+    if(!data.length){
       console.error('[loadCandles] No data for', canonSym, tf);
       document.getElementById('loadInd').className='load-ind';
       document.getElementById('errOverlay').className='err-overlay';
       return false;
     }
+    // Reverse: Supabase returns newest first (desc), chart needs oldest first (asc)
+    const reversed = data.reverse();
     // Convert Supabase format to chart format
-    candles = data.map(c => ({
+    candles = reversed.map(c => ({
       time: Math.floor(new Date(c.open_time).getTime()/1000),
       open: Number(c.open),
       high: Number(c.high),
@@ -500,7 +530,8 @@ function updateOHLC(){
 
 function updateChHeader(){
   const p=prices[cur.sym]; if(!p||p.mid==null) return;
-  const last=Number(p.mid), open=Number(p.open||0); const chg=open>0?((last-open)/open*100):0; const c=chg>=0?'up':'dn';
+  const last=Number(p.mid), prev=Number(p.prev||p.mid);
+  const chg=prev>0?((last-prev)/prev*100):0; const c=chg>=0?'up':'dn';
   document.getElementById('chPrice').textContent=fp(last,cur.prec); document.getElementById('chPrice').className='ch-price '+c;
   const ce=document.getElementById('chChg'); ce.textContent=pct(chg); ce.className='ch-chg '+c;
   document.getElementById('hdrPrice').textContent=fp(last,cur.prec); document.getElementById('hdrPrice').style.color=chg>=0?'#26a69a':'#ef5350';
