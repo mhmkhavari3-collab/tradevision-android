@@ -539,19 +539,18 @@ async function loadCandles(sym,tf){
     const reversed = data.reverse();
     console.log(`[loadCandles] OK: ${canonSym}/${tf} rows=${reversed.length} oldest=${reversed[0]?.open_time} newest=${reversed[reversed.length-1]?.open_time}`);
     // Convert Supabase format to chart format
-    candles = reversed.map(c => ({
+    candles = reversed.map(c => {
       const rawTime = Math.floor(new Date(c.open_time).getTime()/1000);
-      const alignedTime = alignTimestamp(rawTime, CURRENT_TF);
-      console.log(`[HISTORY] originalTime=${rawTime} alignedTime=${alignedTime}`);
-      time: alignedTime,
       const alignedTime = alignTimestamp(rawTime, tf);
       console.log(`[HISTORY] originalTime=${rawTime} alignedTime=${alignedTime}`);
-      time: alignedTime,
-      open: Number(c.open),
-      high: Number(c.high),
-      low: Number(c.low),
-      close: Number(c.close),
-      volume: Number(c.volume||0)
+      return {
+        time: alignedTime,
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+        volume: Number(c.volume||0)
+      };
     })).filter((c,i,a)=>i===0 || a[i-1].time !== c.time);
     
     document.getElementById('loadInd').className='load-ind';
@@ -691,19 +690,18 @@ async function loadMoreHistory(){
     }
     // Convert and reverse (Supabase returns desc, we need oldest first for prepend)
     // FIX 4: Use candleMap.has() for O(1) duplicate detection
-    const nc = data.reverse().map(c => ({
+    const nc = data.reverse().map(c => {
       const rawTime = Math.floor(new Date(c.open_time).getTime()/1000);
       const alignedTime = alignTimestamp(rawTime, CURRENT_TF);
       console.log(`[HISTORY] originalTime=${rawTime} alignedTime=${alignedTime}`);
-      time: alignedTime,
-      const alignedTime = alignTimestamp(rawTime, tf);
-      console.log(`[HISTORY] originalTime=${rawTime} alignedTime=${alignedTime}`);
-      time: alignedTime,
-      open: Number(c.open),
-      high: Number(c.high),
-      low: Number(c.low),
-      close: Number(c.close),
-      volume: Number(c.volume||0)
+      return {
+        time: alignedTime,
+        open: Number(c.open),
+        high: Number(c.high),
+        low: Number(c.low),
+        close: Number(c.close),
+        volume: Number(c.volume||0)
+      };
     })).filter(c => !candleMap.has(c.time) && !isNaN(c.open));
     
     if(nc.length){
