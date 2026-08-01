@@ -1,0 +1,415 @@
+#!/usr/bin/env python3
+"""
+TradeVision Data Worker v2
+- Fetches candles from OANDA (Forex/Metals/Energy) and OKX (Crypto)
+- Validates & Upserts to Supabase (market_candles + market_prices)
+- Polling with adaptive rate limiting for 17 symbols x 9 timeframes
+- Uses service_role key for writes
+"""
+
+import asyncio
+import aiohttp
+import os
+import logging
+from datetime import datetime, timezone, timedelta
+from typing import Dict, List, Optional
+from dataclasses import dataclass
+from supabase import create_client, Client
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+SUPABASE_URL = "https://mbocedojtnvyfhlclnpm.supabase.co"
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ib2NlZG9qdG52eWZobGNsbnBtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NTM5MzA0NywiZXhwIjoyMTAwOTY5MDQ3fQ.ZjZrKJZz-C7hKHB_HxbYUUodzDg715ddBEXNc9663vk")
+
+OANDA_ACCOUNT_ID = "001-001-21958739-001"
+OANDA_TOKEN = os.getenv("OANDA_TOKEN", "")
+OKX_BASE = "https://www.okx.com"
+
+SYMBOL_CONFIG = {
+    "XAUUSD": {"oanda": "XAU_USD", "okx": None, "category": "METALS"},
+    "XAGUSD": {"oanda": "XAG_USD", "okx": None, "category": "METALS"},
+    "WTI":    {"oanda": "WTICO_USD", "okx": None, "category": "ENERGY"},
+    "BRENT":  {"oanda": "BCO_USD", "okx": None, "category": "ENERGY"},
+    "EURUSD": {"oanda": "EUR_USD", "okx": None, "category": "FOREX"},
+    "GBPUSD": {"oanda": "GBP_USD", "okx": None, "category": "FOREX"},
+    "USDJPY": {"oanda": "USD_JPY", "okx": None, "category": "FOREX"},
+    "AUDUSD": {"oanda": "AUD_USD", "okx": None, "category": "FOREX"},
+    "USDCAD": {"oanda": "USD_CAD", "okx": None, "category": "FOREX"},
+    "NZDUSD": {"oanda": "NZD_USD", "okx": None, "category": "FOREX"},
+    "USDCHF": {"oanda": "USD_CHF", "okx": None, "category": "FOREX"},
+    "EURGBP": {"oanda": "EUR_GBP", "okx": None, "category": "FOREX"},
+    "EURJPY": {"oanda": "EUR_JPY", "okx": None, "category": "FOREX"},
+    "GBPJPY": {"oanda": "GBP_JPY", "okx": None, "category": "FOREX"},
+    "BTC":    {"oanda": None, "okx": "BTC-USDT", "category": "CRYPTO"},
+    "ETH":    {"oanda": None, "okx": "ETH-USDT", "category": "CRYPTO"},
+    "SOL":    {"oanda": None, "okx": "SOL-USDT", "category": "CRYPTO"},
+}
+
+TF_OANDA = {
+    "1m": "M1", "5m": "M5", "15m": "M15", "30m": "M30",
+    "1h": "H1", "4h": "H4", "1d": "D", "1W": "W", "1M": "M"
+}
+TF_OKX = {
+    "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+    "1h": "1H", "4h": "4H", "1d": "1D", "1W": "1W", "1M": "1M"
+}
+
+POLL_INTERVALS = {
+    "1m": 2.0, "5m": 5.0, "15m": 10.0, "30m": 15.0,
+    "1h": 30.0, "4h": 60.0, "1d": 300.0, "1W": 1800.0, "1M": 3600.0,
+}
+
+OANDA_SEMAPHORE = asyncio.Semaphore(30)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    datefmt="%H:%M:%S"
+)
+log = logging.getLogger("feeder")
+
+
+@dataclass
+class Candle:
+    canonical_symbol: str
+    timeframe: str
+    open_time: datetime
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    is_closed: bool
+    source: str = "feeder"
+
+
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+
+def validate_candle(c: Candle) -> tuple[bool, str]:
+    if c.open <= 0 or c.high <= 0 or c.low <= 0 or c.close <= 0:
+        return False, f"Non-positive price: O={c.open} H={c.high} L={c.low} C={c.close}"
+    if c.high < max(c.open, c.close) or c.low > min(c.open, c.close):
+        return False, f"High/Low invalid: H={c.high} L={c.low} O={c.open} C={c.close}"
+    if c.high < c.low:
+        return False, f"High < Low: {c.high} < {c.low}"
+    if c.volume < 0:
+        return False, f"Negative volume: {c.volume}"
+    tf_seconds = tf_to_seconds(c.timeframe)
+    if tf_seconds and int(c.open_time.timestamp()) % tf_seconds != 0:
+        return False, f"Timestamp not aligned to {c.timeframe}: {c.open_time}"
+    return True, ""
+
+
+def tf_to_seconds(tf: str) -> Optional[int]:
+    mapping = {
+        "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
+        "1h": 3600, "4h": 14400, "1d": 86400, "1W": 604800
+    }
+    return mapping.get(tf)
+
+
+async def fetch_oanda_candles(
+    session: aiohttp.ClientSession,
+    instrument: str,
+    granularity: str,
+    from_time: datetime,
+    to_time: datetime
+) -> List[Dict]:
+    url = f"https://api-fxpractice.oanda.com/v3/instruments/{instrument}/candles"
+    params = {
+        "granularity": granularity,
+        "from": from_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "to": to_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "price": "M",
+        "alignmentTimezone": "UTC",
+        "dailyAlignment": 0,
+    }
+    headers = {"Authorization": f"Bearer {OANDA_TOKEN}"}
+
+    async with OANDA_SEMAPHORE:
+        try:
+            async with session.get(url, params=params, headers=headers) as resp:
+                if resp.status == 429:
+                    log.warning(f"OANDA 429 for {instrument} {granularity}, backing off")
+                    await asyncio.sleep(5)
+                    return []
+                if resp.status != 200:
+                    text = await resp.text()
+                    log.error(f"OANDA {resp.status} for {instrument}: {text[:200]}")
+                    return []
+                data = await resp.json()
+                return data.get("candles", [])
+        except Exception as e:
+            log.error(f"OANDA fetch error {instrument}: {e}")
+            return []
+
+
+def parse_oanda_candle(raw: Dict, canonical: str, tf: str) -> Optional[Candle]:
+    if not raw.get("complete", False):
+        return None
+    mid = raw.get("mid", {})
+    try:
+        return Candle(
+            canonical_symbol=canonical,
+            timeframe=tf,
+            open_time=datetime.fromisoformat(raw["time"].replace("Z", "+00:00")),
+            open=float(mid["o"]),
+            high=float(mid["h"]),
+            low=float(mid["l"]),
+            close=float(mid["c"]),
+            volume=float(raw.get("volume", 0)),
+            is_closed=True,
+            source="oanda"
+        )
+    except Exception as e:
+        log.error(f"Parse OANDA error: {e}")
+        return None
+
+
+async def fetch_okx_candles(
+    session: aiohttp.ClientSession,
+    inst_id: str,
+    bar: str,
+    after: int,
+    before: int
+) -> List[Dict]:
+    url = f"{OKX_BASE}/api/v5/market/history-candles"
+    params = {
+        "instId": inst_id,
+        "bar": bar,
+        "after": str(after),
+        "before": str(before),
+        "limit": "100"
+    }
+    try:
+        async with session.get(url, params=params) as resp:
+            if resp.status != 200:
+                text = await resp.text()
+                log.error(f"OKX {resp.status} for {inst_id}: {text[:200]}")
+                return []
+            data = await resp.json()
+            if data.get("code") != "0":
+                log.error(f"OKX API error: {data}")
+                return []
+            return data.get("data", [])
+    except Exception as e:
+        log.error(f"OKX fetch error {inst_id}: {e}")
+        return []
+
+
+def parse_okx_candle(raw: List, canonical: str, tf: str) -> Optional[Candle]:
+    try:
+        ts = int(raw[0])
+        return Candle(
+            canonical_symbol=canonical,
+            timeframe=tf,
+            open_time=datetime.fromtimestamp(ts / 1000, tz=timezone.utc),
+            open=float(raw[1]),
+            high=float(raw[2]),
+            low=float(raw[3]),
+            close=float(raw[4]),
+            volume=float(raw[5]),
+            is_closed=True,
+            source="okx"
+        )
+    except Exception as e:
+        log.error(f"Parse OKX error: {e}")
+        return None
+
+
+async def upsert_candles(candles: List[Candle]) -> int:
+    if not candles:
+        return 0
+    rows = []
+    for c in candles:
+        valid, err = validate_candle(c)
+        if not valid:
+            log.warning(f"Invalid candle skipped: {c.canonical_symbol} {c.timeframe} {c.open_time} - {err}")
+            continue
+        rows.append({
+            "canonical_symbol": c.canonical_symbol,
+            "timeframe": c.timeframe,
+            "open_time": c.open_time.isoformat(),
+            "open": c.open,
+            "high": c.high,
+            "low": c.low,
+            "close": c.close,
+            "volume": c.volume,
+            "is_closed": c.is_closed,
+            "source": c.source
+        })
+    if not rows:
+        return 0
+    try:
+        result = supabase.table("market_candles").upsert(rows, on_conflict="canonical_symbol,timeframe,open_time").execute()
+        return len(result.data) if result.data else 0
+    except Exception as e:
+        log.error(f"Supabase upsert error: {e}")
+        return 0
+
+
+async def upsert_price(c: Candle) -> bool:
+    mid = (c.high + c.low) / 2
+    try:
+        current = supabase.table("market_prices").select("mid_price").eq("canonical_symbol", c.canonical_symbol).execute()
+        prev_mid = current.data[0]["mid_price"] if current.data else mid
+        change_pct = ((mid - prev_mid) / prev_mid * 100) if prev_mid else 0
+
+        supabase.table("market_prices").upsert({
+            "canonical_symbol": c.canonical_symbol,
+            "mid_price": mid,
+            "bid_price": c.low,
+            "ask_price": c.high,
+            "prev_mid_price": prev_mid,
+            "change_percent": round(change_pct, 4),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }).execute()
+        return True
+    except Exception as e:
+        log.error(f"Price upsert error {c.canonical_symbol}: {e}")
+        return False
+
+
+async def poll_oanda_symbol(
+    session: aiohttp.ClientSession,
+    canonical: str,
+    config: Dict,
+    tf: str
+):
+    instrument = config["oanda"]
+    granularity = TF_OANDA[tf]
+    interval = POLL_INTERVALS[tf]
+    log.info(f"Started OANDA poll: {canonical} {tf} ({instrument}) every {interval}s")
+
+    while True:
+        try:
+            to_time = datetime.now(timezone.utc)
+            if tf in ["1m", "5m"]:
+                from_time = to_time - timedelta(minutes=10)
+            else:
+                from_time = to_time - timedelta(seconds=7200)
+
+            raw_candles = await fetch_oanda_candles(session, instrument, granularity, from_time, to_time)
+            parsed = [parse_oanda_candle(r, canonical, tf) for r in raw_candles]
+            valid_candles = [c for c in parsed if c]
+
+            if valid_candles:
+                upserted = await upsert_candles(valid_candles)
+                if upserted:
+                    latest = max(valid_candles, key=lambda x: x.open_time)
+                    await upsert_price(latest)
+                    log.info(f"OANDA {canonical} {tf}: upserted {upserted} candles")
+
+        except Exception as e:
+            log.error(f"Poll error OANDA {canonical} {tf}: {e}")
+
+        await asyncio.sleep(interval)
+
+
+async def poll_okx_symbol(
+    session: aiohttp.ClientSession,
+    canonical: str,
+    config: Dict,
+    tf: str
+):
+    inst_id = config["okx"]
+    bar = TF_OKX[tf]
+    interval = POLL_INTERVALS[tf]
+    log.info(f"Started OKX poll: {canonical} {tf} ({inst_id}) every {interval}s")
+
+    while True:
+        try:
+            to_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            if tf in ["1m", "5m"]:
+                from_ms = to_ms - (10 * 60 * 1000)
+            else:
+                from_ms = to_ms - (2 * 60 * 60 * 1000)
+
+            raw_candles = await fetch_okx_candles(session, inst_id, bar, from_ms, to_ms)
+            parsed = [parse_okx_candle(r, canonical, tf) for r in raw_candles]
+            valid_candles = [c for c in parsed if c]
+
+            if valid_candles:
+                upserted = await upsert_candles(valid_candles)
+                if upserted:
+                    latest = max(valid_candles, key=lambda x: x.open_time)
+                    await upsert_price(latest)
+                    log.info(f"OKX {canonical} {tf}: upserted {upserted} candles")
+
+        except Exception as e:
+            log.error(f"Poll error OKX {canonical} {tf}: {e}")
+
+        await asyncio.sleep(interval)
+
+
+async def backfill_historical(session: aiohttp.ClientSession):
+    log.info("Starting historical backfill...")
+    for canonical, config in SYMBOL_CONFIG.items():
+        for tf in TF_OANDA.keys():
+            try:
+                if config["oanda"]:
+                    granularity = TF_OANDA[tf]
+                    to_time = datetime.now(timezone.utc)
+                    from_time = to_time - timedelta(days=30)
+                    raw = await fetch_oanda_candles(session, config["oanda"], granularity, from_time, to_time)
+                    parsed = [parse_oanda_candle(r, canonical, tf) for r in raw]
+                    valid = [c for c in parsed if c]
+                    if valid:
+                        await upsert_candles(valid)
+                        log.info(f"Backfill OANDA {canonical} {tf}: {len(valid)} candles")
+
+                if config["okx"]:
+                    bar = TF_OKX[tf]
+                    to_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+                    from_ms = to_ms - (30 * 24 * 60 * 60 * 1000)
+                    raw = await fetch_okx_candles(session, config["okx"], bar, from_ms, to_ms)
+                    parsed = [parse_okx_candle(r, canonical, tf) for r in raw]
+                    valid = [c for c in parsed if c]
+                    if valid:
+                        await upsert_candles(valid)
+                        log.info(f"Backfill OKX {canonical} {tf}: {len(valid)} candles")
+
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                log.error(f"Backfill error {canonical} {tf}: {e}")
+    log.info("Historical backfill complete")
+
+
+async def main():
+    if not OANDA_TOKEN:
+        log.error("OANDA_TOKEN not set in environment!")
+        return
+
+    log.info("=" * 50)
+    log.info("TradeVision Feeder v2 Starting")
+    log.info(f"Symbols: {len(SYMBOL_CONFIG)} | OANDA: {sum(1 for v in SYMBOL_CONFIG.values() if v['oanda'])} | OKX: {sum(1 for v in SYMBOL_CONFIG.values() if v['okx'])}")
+    log.info("=" * 50)
+
+    async with aiohttp.ClientSession() as session:
+        await backfill_historical(session)
+
+        tasks = []
+        for canonical, config in SYMBOL_CONFIG.items():
+            for tf in TF_OANDA.keys():
+                if config["oanda"]:
+                    tasks.append(poll_oanda_symbol(session, canonical, config, tf))
+                if config["okx"]:
+                    tasks.append(poll_okx_symbol(session, canonical, config, tf))
+
+        log.info(f"Started {len(tasks)} polling tasks")
+        log.info("Feeder running... (Ctrl+C to stop)")
+
+        await asyncio.gather(*tasks)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        log.info("Feeder stopped by user")
+    except Exception as e:
+        log.error(f"Feeder crashed: {e}")
+        raise
