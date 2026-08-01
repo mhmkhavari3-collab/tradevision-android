@@ -416,7 +416,8 @@ function initChart(){
   });
   chart.timeScale().subscribeVisibleLogicalRangeChange(r=>{
     if(!r||!candles||candles.length<2) return;
-    if(r.from<=10 && !loadingMore) loadMoreHistory();
+    // Trigger when user scrolls near left edge (within 20 bars)
+    if(r.from<=20 && !loadingMore) loadMoreHistory();
   });
   var rt=null;new ResizeObserver(()=>{if(rt)clearTimeout(rt);rt=setTimeout(()=>{if(chart&&el)chart.applyOptions({width:el.clientWidth,height:el.clientHeight})},100)}).observe(el);
   applyPrecision();
@@ -578,6 +579,13 @@ async function loadMoreHistory(){
       }
       console.log(`[loadMoreHistory] PREPEND: +${nc.length} candles, total=${candles.length}, newest_old=${nc[0]?new Date(nc[0].time*1000).toISOString():'?'}, oldest_new=${nc[nc.length-1]?new Date(nc[nc.length-1].time*1000).toISOString():'?'}`);
       toast('+'+nc.length+' candles');
+      // Check if we're still near left edge after prepend - if so, load more
+      setTimeout(()=>{
+        if(chart && !loadingMore){
+          const vr = chart.timeScale().getVisibleLogicalRange();
+          if(vr && vr.from <= 20) loadMoreHistory();
+        }
+      }, 200);
     }
   }catch(e){
     console.error('[loadMoreHistory] Error:', e);
