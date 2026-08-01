@@ -299,19 +299,22 @@ function goChart(sym){
 }
 function fetchPrices(){
   // Fetch all 17 symbols from Supabase market_prices (canonical_symbol)
-  const url = `${SUPABASE_URL}/rest/v1/market_prices?select=canonical_symbol,mid_price,bid,ask,updated_at`;
-  fetch(url, {headers:{'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY}}).then(r=>r.json()).then(data=>{
+  const url = `${SUPABASE_URL}/rest/v1/market_prices?select=canonical_symbol,mid_price,bid_price,ask_price,prev_mid_price,change_percent,updated_at`;
+  fetch(url, {headers:{'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY}}).then(r=>{
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    return r.json();
+  }).then(data=>{
     if(!data) return;
     data.forEach(p=>{
       if(p.mid_price != null){
         const old = prices[p.canonical_symbol] || {};
-        // Store previous price for change comparison
         const prevMid = old.mid != null ? old.mid : null;
         prices[p.canonical_symbol] = {
           mid: p.mid_price,
-          bid: p.bid,
-          ask: p.ask,
-          prev: prevMid || p.mid_price,  // First load: prev = current
+          bid: p.bid_price,
+          ask: p.ask_price,
+          prev: prevMid || p.mid_price,
+          change: p.change_percent,
           time: p.updated_at ? new Date(p.updated_at).getTime() : Date.now()
         };
       }
@@ -482,7 +485,7 @@ function initChart(){
   });
   chart.timeScale().subscribeVisibleLogicalRangeChange(r=>{
     if(!r||!candles||candles.length<2) return;
-    console.log(`[HISTORY_TRIGGER] visibleFrom=${r.from.toFixed(2)} visibleTo=${r.to.toFixed(2)} candlesLength=${candles.length}`);
+    console.log(`[HISTORY_TRIGGER] symbol=${cur.sym} timeframe=${CURRENT_TF} visibleFrom=${r.from.toFixed(2)} visibleTo=${r.to.toFixed(2)} candlesLength=${candles.length}`);
     // Trigger when user scrolls near left edge (within 20 bars)
     if(r.from<=20 && !loadingMore) loadMoreHistory();
   });
@@ -658,9 +661,9 @@ async function loadMoreHistory(){
     const oldestEnc = encodeURIComponent(oldestISO);
     const url = `${SUPABASE_URL}/rest/v1/market_candles?canonical_symbol=eq.${canonSym}&timeframe=eq.${CURRENT_TF}&open_time=lt.${oldestEnc}&order=open_time.desc&limit=300`;
     const r = await fetch(url, {headers:{'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY}});
-    console.log(`[HISTORY_RESPONSE] count=${r.status} ${r.statusText}`);
-    if(!r.ok){ throw new Error(`HTTP ${r.status}`); }
     const data = await r.json();
+    console.log(`[HISTORY_RESPONSE] count=${data?data.length:0}`);
+    if(!r.ok){ throw new Error(`HTTP ${r.status}`); }
     if(mySeq!==historyLoadSeqId||!data||!data.length){
       console.log(`[HISTORY_END] No more candles`);
       loadingMore=false;
@@ -681,7 +684,7 @@ async function loadMoreHistory(){
       candles = nc.concat(candles);
       candleSeries.setData(candles);
       rebuildCandleMap();
-      console.log(`[HISTORY_PREPEND] +${nc.length} candles, total=${candles.length}`);
+      console.log(`[HISTORY_APPEND] +${nc.length} candles, newTotal=${candles.length}`);
       toast('+'+nc.length+' candles');
       setTimeout(()=>{
         if(chart && !loadingMore){
