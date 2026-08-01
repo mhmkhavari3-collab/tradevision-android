@@ -426,9 +426,10 @@ function initChart(){
     if(!chart||loadingMore||!candles||candles.length<2) return;
     try{
       const vr = chart.timeScale().getVisibleLogicalRange();
+      console.log(`[poll] from=${vr?.from} to=${vr?.to} candles=${candles.length}`);
       if(vr && vr.from <= 10) loadMoreHistory();
     }catch(e){}
-  }, 2000);
+  }, 3000);
   var rt=null;new ResizeObserver(()=>{if(rt)clearTimeout(rt);rt=setTimeout(()=>{if(chart&&el)chart.applyOptions({width:el.clientWidth,height:el.clientHeight})},100)}).observe(el);
   applyPrecision();
 }
@@ -501,7 +502,6 @@ function updateChartCandle(candleData){
   if(!candleSeries||!candles.length||!candleData) return;
   
   const candleTime = Math.floor(new Date(candleData.open_time).getTime()/1000);
-  const last = candles[candles.length-1];
   const chartCandle = {
     time: candleTime,
     open: Number(candleData.open),
@@ -511,15 +511,25 @@ function updateChartCandle(candleData){
     volume: Number(candleData.volume||0)
   };
   
-  // Match: exact time OR within 60s (for timezone rounding)
-  if(last && Math.abs(last.time - chartCandle.time) < 60){
-    // Same candle - update in place
-    candles[candles.length-1] = chartCandle;
+  // Search the entire array for matching candle
+  let idx = -1;
+  for(let i = candles.length - 1; i >= Math.max(0, candles.length - 100); i--){
+    if(Math.abs(candles[i].time - chartCandle.time) < 60){
+      idx = i;
+      break;
+    }
+  }
+  
+  if(idx >= 0){
+    // Found matching candle - update in place
+    candles[idx] = chartCandle;
     candleSeries.update(chartCandle);
-  }else if(last && chartCandle.time > last.time){
+  }else if(chartCandle.time > (candles[candles.length-1]?.time || 0)){
     // New candle - append
     candles.push(chartCandle);
     candleSeries.update(chartCandle);
+    // Keep max 1000 candles
+    if(candles.length > 1000) candles.shift();
   }
   updateChHeader();
   updateOHLC();
