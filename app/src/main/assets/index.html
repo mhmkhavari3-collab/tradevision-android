@@ -117,42 +117,27 @@ button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
   <div style="font-size:18px;font-weight:700;margin-bottom:16px">⚙️ Settings</div>
   
   <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
-    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">📡 Realtime Server</div>
-    <div style="font-size:12px;color:#555;margin-bottom:8px">Supabase Realtime URL. Change provider without new APK.</div>
-    <input id="realtimeUrl" type="url" placeholder="https://mbocedojtnvyfhlclnpm.supabase.co" 
-      style="width:100%;background:#0a0e14;border:1px solid #333;border-radius:8px;padding:12px;color:#fff;font-size:14px;box-sizing:border-box">
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <button onclick="saveRealtimeUrl()" style="flex:1;background:#26a69a;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">💾 Save</button>
-      <button onclick="testRealtimeUrl()" style="flex:1;background:#333;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">🧪 Test</button>
-    </div>
-    <div id="realtimeStatus" style="font-size:12px;margin-top:8px;color:#787b86"></div>
-  </div>
-  
-  <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
-    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">🔌 REST API Proxy</div>
-    <div style="font-size:12px;color:#555;margin-bottom:8px">Worker/Backend URL for history & prices.</div>
-    <input id="serverUrl" type="url" placeholder="https://xxx.up.railway.app" 
-      style="width:100%;background:#0a0e14;border:1px solid #333;border-radius:8px;padding:12px;color:#fff;font-size:14px;box-sizing:border-box">
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <button onclick="saveServerUrl()" style="flex:1;background:#26a69a;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">💾 Save</button>
-      <button onclick="testServerUrl()" style="flex:1;background:#333;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">🧪 Test</button>
-    </div>
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">🔌 Supabase Connection</div>
+    <div style="font-size:12px;color:#555;margin-bottom:8px">All data from Supabase only.</div>
+    <button onclick="testSupabase()" style="width:100%;background:#333;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">🧪 Test Connection</button>
     <div id="serverStatus" style="font-size:12px;margin-top:8px;color:#787b86"></div>
   </div>
   
   <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
     <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">ℹ️ About</div>
     <div style="font-size:12px;color:#787b86">
-      TradeVision v11e<br>
+      TradeVision v12<br>
       Engine: Lightweight Charts<br>
-      Data: OANDA + OKX via Supabase<br>
-      <span id="currentServerDisplay" style="color:#26a69a"></span>
+      Data: Supabase Only (market_prices + market_candles_v2)<br>
     </div>
   </div>
   
   <div style="background:#1e222d;border-radius:12px;padding:16px;margin-bottom:12px">
-    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">🔄 Reset</div>
-    <button onclick="resetAllUrls()" style="width:100%;background:#ef5350;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:700">Reset to Defaults</button>
+    <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">🔄 Data Source</div>
+    <div style="font-size:12px;color:#787b86">
+      Historical: OANDA/OKX → Feeder → Supabase<br>
+      Live: Feeder → Supabase Realtime → APK
+    </div>
   </div>
 </div>
 
@@ -173,8 +158,7 @@ eval(LWC_SCRIPT);
 // ====================================================
 
 /* ============ CONFIG ============ */
-let PROXY = 'https://market-stream.mamali163345.workers.dev';
-const WS_BASE = PROXY.replace('https://','wss://');
+// PROXY removed - all data from Supabase only
 
 // ============ SUPABASE REALTIME CONFIG ============
 const SUPABASE_URL = 'https://mbocedojtnvyfhlclnpm.supabase.co';
@@ -201,7 +185,7 @@ const SYMBOLS = [
 const TIMEFRAMES = [{id:'1m',l:'1m'},{id:'5m',l:'5m'},{id:'15m',l:'15m'},{id:'30m',l:'30m'},{id:'1h',l:'1h'},{id:'4h',l:'4h'},{id:'1d',l:'1d'},{id:'1W',l:'1W'},{id:'1M',l:'1M'}];
 
 // Timeframe seconds for proper candle aggregation
-const TF_SECONDS = {'1m':60,'5m':300,'15m':900,'30m':1800,'1h':3600,'4h':14400,'1d':86400,'1W':604800,'1M':2592000};
+// TF_SECONDS removed - tick-based candle building removed
 
 /* ============ STATE ============ */
 let cur = SYMBOLS[0], CURRENT_TF = '15m';
@@ -439,10 +423,7 @@ function initChart(){
 }
 function applyPrecision(){if(candleSeries&&cur)candleSeries.applyOptions({priceFormat:{type:'price',precision:cur.prec,minMove:cur.minMove}})}
 
-const OANDA_URL='https://api-fxtrade.oanda.com';
-const OANDA_TOK='0dcfea75f50aa3b19d0e8c4810a865f4-e23a605e060d62d2d3e3011d1156f124';
-const SYMS_INST={'XAUUSD':'XAU_USD','XAGUSD':'XAG_USD','WTI':'WTICO_USD','BRENT':'BCO_USD','EURUSD':'EUR_USD','GBPUSD':'GBP_USD','USDJPY':'USD_JPY','AUDUSD':'AUD_USD','USDCHF':'USD_CHF','USDCAD':'USD_CAD','NZDUSD':'NZD_USD','EURGBP':'EUR_GBP','EURJPY':'EUR_JPY','GBPJPY':'GBP_JPY','EURCHF':'EUR_CHF','EURCAD':'EUR_CAD','EURAUD':'EUR_AUD','EURNZD':'EUR_NZD','GBPAUD':'GBP_AUD','GBPCAD':'GBP_CAD','GBPCHF':'GBP_CHF','GBPNZD':'GBP_NZD','AUDCAD':'AUD_CAD','AUDCHF':'AUD_CHF','AUDJPY':'AUD_JPY','AUDNZD':'AUD_NZD','CADJPY':'CAD_JPY','CADCHF':'CAD_CHF','NZDJPY':'NZD_JPY','NZDCAD':'NZD_CAD','NZDCHF':'NZD_CHF','CHFJPY':'CHF_JPY'};
-const OANDA_TF={'1m':'M1','5m':'M5','15m':'M15','30m':'M30','1h':'H1','4h':'H4','1d':'D','1W':'W','1M':'M'};
+// OANDA/OKX direct access removed - all data from Supabase only
 
 async function loadCandles(sym,tf){
   const mySeq=++seqId; candles=[];
@@ -486,16 +467,6 @@ async function loadCandles(sym,tf){
     document.getElementById('loadInd').className='load-ind';
     document.getElementById('errOverlay').className='err-overlay';
     return false;
-  }
-}
-
-function generatePlaceholderCandles(){
-  let base=cur.sym==='XAUUSD'?4000:cur.sym==='EURUSD'?1.1:cur.sym==='USDJPY'?150:100;
-  const now=Math.floor(Date.now()/1000);
-  const tfSec={'1m':60,'5m':300,'15m':900,'30m':1800,'1h':3600,'4h':14400,'1d':86400}[CURRENT_TF]||900;
-  for(let i=299;i>=0;i--){
-    const t=now-i*tfSec; const o=base+(Math.random()-0.5)*10; const h=o+Math.random()*5; const l=o-Math.random()*5; const c=l+Math.random()*(h-l);
-    candles.push({time:t,open:o,high:h,low:l,close:c,volume:0}); base=c;
   }
 }
 
@@ -620,45 +591,19 @@ function setTF(tf){
 }
 
 /* ============ SETTINGS ============ */
-function getServerUrl(){
-  return localStorage.getItem('tv_server_url') || 'https://market-stream.mamali163345.workers.dev';
-}
 function getRealtimeUrl(){
-  return localStorage.getItem('tv_realtime_url') || 'https://mbocedojtnvyfhlclnpm.supabase.co';
+  return 'https://mbocedojtnvyfhlclnpm.supabase.co';
 }
-function saveServerUrl(){
-  const url=document.getElementById('serverUrl').value.trim();
-  if(!url){toast('Enter a URL');return;}
-  try{new URL(url);}catch(e){toast('Invalid URL');return;}
-  localStorage.setItem('tv_server_url', url);
-  PROXY=url;
-  document.getElementById('serverStatus').innerHTML='<span style="color:#26a69a">✅ Saved! REST: '+url+'</span>';
-  toast('REST URL saved!');
-}
-function testServerUrl(){
-  const url=document.getElementById('serverUrl').value.trim()||getServerUrl();
-  document.getElementById('serverStatus').innerHTML='<span style="color:#f0b90b">⏳ Testing...</span>';
-  fetch(url+'/health',{signal:AbortSignal.timeout(5000)})
+function testSupabase(){
+  document.getElementById('serverStatus').innerHTML='<span style="color:#f0b90b">⏳ Testing Supabase...</span>';
+  fetch(SUPABASE_URL+'/rest/v1/market_prices?select=canonical_symbol&limit=1',{headers:{'apikey': SUPABASE_KEY}})
     .then(r=>r.json())
-    .then(d=>{document.getElementById('serverStatus').innerHTML='<span style="color:#26a69a">✅ Server OK: '+JSON.stringify(d)+'</span>';})
+    .then(d=>{document.getElementById('serverStatus').innerHTML='<span style="color:#26a69a">✅ Supabase OK: '+d.length+' symbols</span>';})
     .catch(e=>{document.getElementById('serverStatus').innerHTML='<span style="color:#ef5350">❌ Failed: '+e.message+'</span>';});
-}
-function resetAllUrls(){
-  localStorage.removeItem('tv_server_url');
-  localStorage.removeItem('tv_realtime_url');
-  PROXY='https://market-stream.mamali163345.workers.dev';
-  document.getElementById('serverUrl').value='';
-  document.getElementById('serverStatus').innerHTML='<span style="color:#26a69a">✅ Reset to defaults</span>';
-  toast('All URLs reset!');
 }
 
 /* ============ INIT ============ */
 function init(){
-  // Load saved URLs (REST + Realtime)
-  PROXY=getServerUrl();
-  document.getElementById('serverUrl').value=PROXY==='https://market-stream.mamali163345.workers.dev'?'':PROXY;
-  document.getElementById('currentServerDisplay').textContent='REST: '+PROXY+' | RT: '+getRealtimeUrl();
-  
   // UI FIRST - buttons work immediately
   buildWL(); buildTFBar();
   
