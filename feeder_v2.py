@@ -118,7 +118,7 @@ async def fetch_oanda_candles(
     from_time: datetime,
     to_time: datetime
 ) -> List[Dict]:
-    url = f"https://api-fxpractice.oanda.com/v3/instruments/{instrument}/candles"
+    url = f"https://api-fxtrade.oanda.com/v3/instruments/{instrument}/candles"
     params = {
         "granularity": granularity,
         "from": from_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -130,21 +130,26 @@ async def fetch_oanda_candles(
     headers = {"Authorization": f"Bearer {OANDA_TOKEN}"}
 
     async with OANDA_SEMAPHORE:
-        try:
-            async with session.get(url, params=params, headers=headers) as resp:
-                if resp.status == 429:
-                    log.warning(f"OANDA 429 for {instrument} {granularity}, backing off")
-                    await asyncio.sleep(5)
+        for attempt in range(3):  # Max 3 retries
+            try:
+                async with session.get(url, params=params, headers=headers) as resp:
+                    if resp.status == 429:
+                        wait = (2 ** attempt) * 5  # 5s, 10s, 20s
+                        log.warning(f"OANDA 429 for {instrument} {granularity}, backing off {wait}s (attempt {attempt+1}/3)")
+                        await asyncio.sleep(wait)
+                        continue
+                    if resp.status != 200:
+                        text = await resp.text()
+                        log.error(f"OANDA {resp.status} for {instrument}: {text[:200]}")
+                        return []
+                    data = await resp.json()
+                    return data.get("candles", [])
+            except Exception as e:
+                if attempt == 2:
+                    log.error(f"OANDA fetch error {instrument} after 3 attempts: {e}")
                     return []
-                if resp.status != 200:
-                    text = await resp.text()
-                    log.error(f"OANDA {resp.status} for {instrument}: {text[:200]}")
-                    return []
-                data = await resp.json()
-                return data.get("candles", [])
-        except Exception as e:
-            log.error(f"OANDA fetch error {instrument}: {e}")
-            return []
+                await asyncio.sleep(2 ** attempt)
+        return []
 
 
 def parse_oanda_candle(raw: Dict, canonical: str, tf: str) -> Optional[Candle]:
@@ -184,20 +189,29 @@ async def fetch_okx_candles(
         "before": str(before),
         "limit": "100"
     }
-    try:
-        async with session.get(url, params=params) as resp:
-            if resp.status != 200:
-                text = await resp.text()
-                log.error(f"OKX {resp.status} for {inst_id}: {text[:200]}")
+    for attempt in range(3):
+        try:
+            async with session.get(url, params=params) as resp:
+                if resp.status == 429:
+                    wait = (2 ** attempt) * 5  # 5s, 10s, 20s
+                    log.warning(f"OKX 429 for {inst_id} {bar}, backing off {wait}s (attempt {attempt+1}/3)")
+                    await asyncio.sleep(wait)
+                    continue
+                if resp.status != 200:
+                    text = await resp.text()
+                    log.error(f"OKX {resp.status} for {inst_id}: {text[:200]}")
+                    return []
+                data = await resp.json()
+                if data.get("code") != "0":
+                    log.error(f"OKX API error: {data}")
+                    return []
+                return data.get("data", [])
+        except Exception as e:
+            if attempt == 2:
+                log.error(f"OKX fetch error {inst_id} after 3 attempts: {e}")
                 return []
-            data = await resp.json()
-            if data.get("code") != "0":
-                log.error(f"OKX API error: {data}")
-                return []
-            return data.get("data", [])
-    except Exception as e:
-        log.error(f"OKX fetch error {inst_id}: {e}")
-        return []
+            await asyncio.sleep(2 ** attempt)
+    return []
 
 
 def parse_okx_candle(raw: List, canonical: str, tf: str) -> Optional[Candle]:
