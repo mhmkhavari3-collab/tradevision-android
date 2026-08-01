@@ -341,6 +341,76 @@ async def upsert_price(c: Candle) -> bool:
         return False
 
 
+async def fetch_all_prices(session: aiohttp.ClientSession):
+    """
+    Periodically fetch prices for ALL symbols from OANDA and OKX,
+    and update market_prices table. This runs independently of candle updates.
+    """
+    log.info("[PRICES] Starting price fetcher for all symbols")
+    while True:
+        for canonical, config in SYMBOL_CONFIG.items():
+            try:
+                if config["oanda"]:
+                    # Fetch current price from OANDA
+                    instrument = config["oanda"]
+                    url = f"https://api-fxtrade.oanda.com/v3/instruments/{instrument}"
+                    headers = {"Authorization": f"Bearer {OANDA_TOKEN}"}
+                    async with session.get(url, headers=headers) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            pricing = data.get("instrument", {}).get("pricing", {})
+                            if pricing:
+                                mid = float(pricing.get("mid", {}).get("b", 0)) + float(pricing.get("mid", {}).get("a", 0)) / 2
+                                bid = float(pricing.get("bid", {}).get("b", 0))
+                                ask = float(pricing.get("ask", {}).get("a", 0))
+                                supabase.table("market_prices").upsert({
+                                    "canonical_symbol": canonical,
+                                    "mid_price": mid,
+                                    "bid_price": bid,
+                                    "ask_price": ask,
+                                    "updated_at": datetime.now(timezone.utc).isoformat()
+                                }).execute()
+                                log.info(f"[PRICES] OANDA {canonical}: mid={mid}")
+                        elif resp.status == 429:
+                            log.warning(f"[PRICES] OANDA 429 for {canonical}, skipping")
+                        else:
+                            log.error(f"[PRICES] OANDA {resp.status} for {canonical}")
+
+                if config["okx"]:
+                    # Fetch current price from OKX
+                    inst_id = config["okx"]
+                    url = f"{OKX_BASE}/api/v5/market/ticker"
+                    params = {"instId": inst_id}
+                    async with session.get(url, params=params) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if data.get("code") == "0" and data.get("data"):
+                                ticker = data["data"][0]
+                                mid = float(ticker.get("last", 0))
+                                bid = float(ticker.get("bidPx", 0))
+                                ask = float(ticker.get("askPx", 0))
+                                supabase.table("market_prices").upsert({
+                                    "canonical_symbol": canonical,
+                                    "mid_price": mid,
+                                    "bid_price": bid,
+                                    "ask_price": ask,
+                                    "updated_at": datetime.now(timezone.utc).isoformat()
+                                }).execute()
+                                log.info(f"[PRICES] OKX {canonical}: mid={mid}")
+                        elif resp.status == 429:
+                            log.warning(f"[PRICES] OKX 429 for {canonical}, skipping")
+                        else:
+                            log.error(f"[PRICES] OKX {resp.status} for {canonical}")
+
+            except Exception as e:
+                log.error(f"[PRICES] Error fetching {canonical}: {e}")
+
+            await asyncio.sleep(0.3)  # Small delay between symbols
+
+        # Wait 5 seconds before next price update cycle
+        await asyncio.sleep(5)
+
+
 async def poll_oanda_symbol(
     session: aiohttp.ClientSession,
     canonical: str,
@@ -350,7 +420,9 @@ async def poll_oanda_symbol(
     instrument = config["oanda"]
     granularity = TF_OANDA[tf]
     interval = POLL_INTERVALS[tf]
-    log.info(f"Started OANDA poll: {canonical} {tf} ({instrument}) every {interval}s")
+    task_start = datetime.now(timezone.utc).isoformat()
+    log.info(f"[TASK START] OANDA {canonical} {tf} ({instrument}) at {task_start}")
+    error_count = 0
 
     while True:
         try:
@@ -369,10 +441,18 @@ async def poll_oanda_symbol(
                 if upserted:
                     latest = max(valid_candles, key=lambda x: x.open_time)
                     await upsert_price(latest)
-                    log.info(f"OANDA {canonical} {tf}: upserted {upserted} candles")
+                    log.info(f"[TASK SUCCESS] OANDA {canonical} {tf}: upserted {upserted} candles")
+                    error_count = 0
+            else:
+                # No complete candles yet, but still update price from last data
+                log.debug(f"[TASK SKIP] OANDA {canonical} {tf}: no complete candles this cycle")
 
         except Exception as e:
-            log.error(f"Poll error OANDA {canonical} {tf}: {e}")
+            error_count += 1
+            log.error(f"[TASK ERROR] OANDA {canonical} {tf}: {e} (error #{error_count})")
+            if error_count > 10:
+                log.error(f"[TASK STOP] OANDA {canonical} {tf}: too many errors ({error_count}), stopping task")
+                return
 
         await asyncio.sleep(interval)
 
@@ -386,11 +466,12 @@ async def poll_okx_symbol(
     inst_id = config["okx"]
     bar = TF_OKX[tf]
     interval = POLL_INTERVALS[tf]
-    
+    task_start = datetime.now(timezone.utc).isoformat()
+    log.info(f"[TASK START] OKX {canonical} {tf} ({inst_id}) at {task_start}")
+    error_count = 0
+
     # Start jitter: 0-2 seconds to prevent burst at startup
     await asyncio.sleep(random.uniform(0, 2))
-    
-    log.info(f"Started OKX poll: {canonical} {tf} ({inst_id}) every {interval}s")
 
     while True:
         try:
@@ -400,7 +481,6 @@ async def poll_okx_symbol(
             else:
                 from_ms = to_ms - (2 * 60 * 60 * 1000)
 
-            # Pass symbol and tf for cache/semaphore
             raw_candles = await fetch_okx_candles(session, inst_id, bar, from_ms, to_ms, canonical, tf)
             parsed = [parse_okx_candle(r, canonical, tf) for r in raw_candles]
             valid_candles = [c for c in parsed if c]
@@ -410,10 +490,17 @@ async def poll_okx_symbol(
                 if upserted:
                     latest = max(valid_candles, key=lambda x: x.open_time)
                     await upsert_price(latest)
-                    log.info(f"OKX {canonical} {tf}: upserted {upserted} candles")
+                    log.info(f"[TASK SUCCESS] OKX {canonical} {tf}: upserted {upserted} candles")
+                    error_count = 0
+            else:
+                log.debug(f"[TASK SKIP] OKX {canonical} {tf}: no complete candles this cycle")
 
         except Exception as e:
-            log.error(f"Poll error OKX {canonical} {tf}: {e}")
+            error_count += 1
+            log.error(f"[TASK ERROR] OKX {canonical} {tf}: {e} (error #{error_count})")
+            if error_count > 10:
+                log.error(f"[TASK STOP] OKX {canonical} {tf}: too many errors ({error_count}), stopping task")
+                return
 
         await asyncio.sleep(interval)
 
@@ -458,24 +545,47 @@ async def main():
 
     log.info("=" * 50)
     log.info("TradeVision Feeder v2 Starting")
-    log.info(f"Symbols: {len(SYMBOL_CONFIG)} | OANDA: {sum(1 for v in SYMBOL_CONFIG.values() if v['oanda'])} | OKX: {sum(1 for v in SYMBOL_CONFIG.values() if v['okx'])}")
+    oanda_count = sum(1 for v in SYMBOL_CONFIG.values() if v['oanda'])
+    okx_count = sum(1 for v in SYMBOL_CONFIG.values() if v['okx'])
+    total_tasks = oanda_count * len(TF_OANDA) + okx_count * len(TF_OKX)
+    log.info(f"Symbols: {len(SYMBOL_CONFIG)} | OANDA: {oanda_count} | OKX: {okx_count}")
+    log.info(f"Total live polling tasks to create: {total_tasks}")
     log.info("=" * 50)
 
     async with aiohttp.ClientSession() as session:
-        await backfill_historical(session)
+        # Run backfill in background (non-blocking for live polling)
+        backfill_task = asyncio.create_task(backfill_historical(session))
 
+        # Start price fetcher (updates market_prices independently)
+        price_task = asyncio.create_task(fetch_all_prices(session))
+
+        # Create live polling tasks immediately
         tasks = []
         for canonical, config in SYMBOL_CONFIG.items():
             for tf in TF_OANDA.keys():
                 if config["oanda"]:
-                    tasks.append(poll_oanda_symbol(session, canonical, config, tf))
+                    task = asyncio.create_task(
+                        poll_oanda_symbol(session, canonical, config, tf),
+                        name=f"OANDA:{canonical}:{tf}"
+                    )
+                    tasks.append(task)
+                    log.info(f"[TASK CREATED] OANDA {canonical} {tf}")
                 if config["okx"]:
-                    tasks.append(poll_okx_symbol(session, canonical, config, tf))
+                    task = asyncio.create_task(
+                        poll_okx_symbol(session, canonical, config, tf),
+                        name=f"OKX:{canonical}:{tf}"
+                    )
+                    tasks.append(task)
+                    log.info(f"[TASK CREATED] OKX {canonical} {tf}")
 
-        log.info(f"Started {len(tasks)} polling tasks")
+        log.info(f"[WORKER CONFIG] Total live tasks: {len(tasks)}")
         log.info("Feeder running... (Ctrl+C to stop)")
 
-        await asyncio.gather(*tasks)
+        # Wait for backfill to complete (non-blocking for live tasks)
+        await backfill_task
+
+        # Keep all tasks running
+        await asyncio.gather(*tasks, price_task)
 
 
 if __name__ == "__main__":
