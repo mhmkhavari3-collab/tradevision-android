@@ -11,8 +11,8 @@ android {
         applicationId = "com.tradevision"
         minSdk = 24
         targetSdk = 34
-        versionCode = 36
-        versionName = "1.0.37"
+        versionCode = 31
+        versionName = "1.0.32"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
