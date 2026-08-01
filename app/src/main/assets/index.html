@@ -333,9 +333,9 @@ function connectWS(sym){
     const rtUrl = 'https://mbocedojtnvyfhlclnpm.supabase.co';
     const rtKey = SUPABASE_KEY;
     const supabaseClient = supabase.createClient(rtUrl, rtKey);
-    supabaseChannel = supabaseClient.channel('market-prices-realtime');
+    supabaseChannel = supabaseClient.channel('market-realtime');
     
-    // Subscribe to market_prices UPDATE events (all 17 symbols)
+    // 1. Subscribe to market_prices UPDATE events (all 17 symbols)
     supabaseChannel.on('postgres_changes', { 
       event: 'UPDATE', 
       schema: 'public', 
@@ -356,7 +356,6 @@ function connectWS(sym){
         };
         // Update chart header if viewing this symbol
         if(page==='CH' && cur && s === cur.sym){
-          updateLiveCandle(p.mid_price);
           updateChHeader();
         }
         // Update watchlist if visible
@@ -364,12 +363,27 @@ function connectWS(sym){
       }
     });
     
+    // 2. Subscribe to market_candles_v2 UPDATE events (current symbol + TF)
+    supabaseChannel.on('postgres_changes', { 
+      event: 'UPDATE', 
+      schema: 'public', 
+      table: 'market_candles_v2'
+    }, (payload) => {
+      const p = payload.new;
+      if(p && p.canonical_symbol && p.timeframe && page==='CH' && cur){
+        // Only process if matches current symbol and timeframe
+        if(p.canonical_symbol === cur.sym && p.timeframe === CURRENT_TF){
+          updateChartCandle(p);
+        }
+      }
+    });
+    
     supabaseChannel.subscribe((status) => {
-      console.log('[Supabase] market_prices status:', status);
+      console.log('[Supabase] Realtime status:', status);
       setWSStatus(status === 'SUBSCRIBED');
     });
     
-    console.log('[Supabase] Realtime subscribed to market_prices');
+    console.log('[Supabase] Realtime subscribed to market_prices + market_candles_v2');
   }catch(e){
     console.error('[Supabase] Realtime error:', e);
     setWSStatus(false);
@@ -493,33 +507,40 @@ function setChartData(){
 }
 
 function updateLiveCandle(price){
-  if(!candleSeries||!candles.length||price<=0) return;
-  const last=candles[candles.length-1];
-  const now=Math.floor(Date.now()/1000);
+  // DEPRECATED: tick-based candle building removed
+  // Realtime updates now come from market_candles_v2 UPDATE events
+  console.warn('[updateLiveCandle] Tick-based updates removed. Use market_candles_v2 Realtime.');
+}
+
+function updateChartCandle(candleData){
+  // Handle market_candles_v2 Realtime UPDATE event
+  // candleData: {canonical_symbol, timeframe, open_time, open, high, low, close, is_closed}
+  if(!candleSeries||!candles.length||!candleData) return;
   
-  // Proper timeframe aggregation - each TF has its own bucket
-  const tfSec = TF_SECONDS[CURRENT_TF] || 900;
-  const curStart = Math.floor(now / tfSec) * tfSec;
+  const candleTime = Math.floor(new Date(candleData.open_time).getTime()/1000);
+  const last = candles[candles.length-1];
+  const chartCandle = {
+    time: candleTime,
+    open: Number(candleData.open),
+    high: Number(candleData.high),
+    low: Number(candleData.low),
+    close: Number(candleData.close),
+    volume: Number(candleData.volume||0)
+  };
   
-  // Sanity check: reject extreme price spikes (>5% from last close)
-  if(last.close && Math.abs(price - last.close) / last.close > 0.05){
-    console.warn('[updateLiveCandle] Price spike rejected:', price, 'vs', last.close);
-    return;
+  if(last && last.time === chartCandle.time){
+    // Same candle - update in place (replace reference)
+    candles[candles.length-1] = chartCandle;
+    candleSeries.update(chartCandle);
+  }else if(last && chartCandle.time > last.time){
+    // New candle - append
+    candles.push(chartCandle);
+    candleSeries.update(chartCandle);
+    // Keep max 1000 candles
+    if(candles.length > 1000) candles.shift();
   }
-  
-  if(curStart > last.time){
-    // New candle - create fresh object
-    const nc={time:curStart,open:last.close,high:price,low:price,close:price,volume:0};
-    candles.push(nc);
-    candleSeries.update(nc);
-    if(candles.length>1000) candles.shift();
-  }else{
-    // Update current candle - create fresh object (don't mutate reference)
-    const updated={time:last.time,open:last.open,high:Math.max(last.high,price),low:Math.min(last.low,price),close:price};
-    candles[candles.length-1]=updated;
-    candleSeries.update(updated);
-  }
-  updateChHeader(); updateOHLC();
+  updateChHeader();
+  updateOHLC();
 }
 
 function updateOHLC(){
