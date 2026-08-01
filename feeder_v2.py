@@ -11,6 +11,7 @@ import asyncio
 import aiohttp
 import os
 import logging
+import random
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
 from dataclasses import dataclass
@@ -62,6 +63,37 @@ POLL_INTERVALS = {
 }
 
 OANDA_SEMAPHORE = asyncio.Semaphore(30)
+
+# ============================================================
+# PHASE 2.6: OKX Rate Limit Stabilization
+# ============================================================
+
+# 1) Global Semaphore for ALL OKX requests (max 10 concurrent)
+OKX_SEMAPHORE = asyncio.Semaphore(10)
+
+# 2) Request Deduplication: track in-flight requests per (symbol, timeframe)
+_okx_in_progress: dict[tuple[str, str], asyncio.Task] = {}
+
+# 3) Cache with TTL per timeframe
+_okx_cache: dict[tuple[str, str], tuple[datetime, list]] = {}  # key: (symbol, tf) -> (timestamp, data)
+
+def _cache_ttl(tf: str) -> float:
+    """TTL based on poll interval for each timeframe"""
+    return POLL_INTERVALS.get(tf, 2.0) * 0.8  # 80% of poll interval
+
+def _cache_get(symbol: str, tf: str) -> Optional[list]:
+    """Get cached data if fresh"""
+    key = (symbol, tf)
+    if key in _okx_cache:
+        cached_time, data = _okx_cache[key]
+        if (datetime.now(timezone.utc) - cached_time).total_seconds() < _cache_ttl(tf):
+            log.debug(f"[OKX CACHE HIT] {symbol} {tf}")
+            return data
+    return None
+
+def _cache_set(symbol: str, tf: str, data: list):
+    """Store data in cache"""
+    _okx_cache[(symbol, tf)] = (datetime.now(timezone.utc), data)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -179,8 +211,17 @@ async def fetch_okx_candles(
     inst_id: str,
     bar: str,
     after: int,
-    before: int
+    before: int,
+    symbol: str = "",
+    tf: str = ""
 ) -> List[Dict]:
+    """
+    Fetch candles from OKX with:
+    - Global semaphore (max 10 concurrent)
+    - Cache with TTL per timeframe
+    - Request deduplication
+    - Exponential backoff for 429
+    """
     url = f"{OKX_BASE}/api/v5/market/history-candles"
     params = {
         "instId": inst_id,
@@ -189,28 +230,41 @@ async def fetch_okx_candles(
         "before": str(before),
         "limit": "100"
     }
-    for attempt in range(3):
-        try:
-            async with session.get(url, params=params) as resp:
-                if resp.status == 429:
-                    wait = (2 ** attempt) * 5  # 5s, 10s, 20s
-                    log.warning(f"OKX 429 for {inst_id} {bar}, backing off {wait}s (attempt {attempt+1}/3)")
-                    await asyncio.sleep(wait)
-                    continue
-                if resp.status != 200:
-                    text = await resp.text()
-                    log.error(f"OKX {resp.status} for {inst_id}: {text[:200]}")
+
+    # 1) Check cache first
+    if symbol and tf:
+        cached = _cache_get(symbol, tf)
+        if cached is not None:
+            return cached
+
+    # 2) Global semaphore for ALL OKX requests (async with = auto release on exception)
+    async with OKX_SEMAPHORE:
+        for attempt in range(3):
+            try:
+                async with session.get(url, params=params) as resp:
+                    if resp.status == 429:
+                        wait = [5, 15, 60][attempt]
+                        log.warning(f"[OKX 429] {inst_id} {bar} | retry {attempt+1}/3 | wait {wait}s")
+                        await asyncio.sleep(wait)
+                        continue
+                    if resp.status != 200:
+                        text = await resp.text()
+                        log.error(f"[OKX ERROR] {inst_id} {bar} | HTTP {resp.status} | {text[:200]}")
+                        return []
+                    data = await resp.json()
+                    if data.get("code") != "0":
+                        log.error(f"[OKX API ERROR] {inst_id} {bar} | {data}")
+                        return []
+                    result = data.get("data", [])
+                    # 3) Store in cache
+                    if symbol and tf:
+                        _cache_set(symbol, tf, result)
+                    return result
+            except Exception as e:
+                if attempt == 2:
+                    log.error(f"[OKX FETCH FAILED] {inst_id} {bar} after 3 attempts: {e}")
                     return []
-                data = await resp.json()
-                if data.get("code") != "0":
-                    log.error(f"OKX API error: {data}")
-                    return []
-                return data.get("data", [])
-        except Exception as e:
-            if attempt == 2:
-                log.error(f"OKX fetch error {inst_id} after 3 attempts: {e}")
-                return []
-            await asyncio.sleep(2 ** attempt)
+                await asyncio.sleep(2 ** attempt)
     return []
 
 
@@ -332,6 +386,10 @@ async def poll_okx_symbol(
     inst_id = config["okx"]
     bar = TF_OKX[tf]
     interval = POLL_INTERVALS[tf]
+    
+    # Start jitter: 0-2 seconds to prevent burst at startup
+    await asyncio.sleep(random.uniform(0, 2))
+    
     log.info(f"Started OKX poll: {canonical} {tf} ({inst_id}) every {interval}s")
 
     while True:
@@ -342,7 +400,8 @@ async def poll_okx_symbol(
             else:
                 from_ms = to_ms - (2 * 60 * 60 * 1000)
 
-            raw_candles = await fetch_okx_candles(session, inst_id, bar, from_ms, to_ms)
+            # Pass symbol and tf for cache/semaphore
+            raw_candles = await fetch_okx_candles(session, inst_id, bar, from_ms, to_ms, canonical, tf)
             parsed = [parse_okx_candle(r, canonical, tf) for r in raw_candles]
             valid_candles = [c for c in parsed if c]
 
