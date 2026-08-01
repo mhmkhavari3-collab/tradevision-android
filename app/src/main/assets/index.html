@@ -214,6 +214,18 @@ const SYMBOLS = [
 ];
 const TIMEFRAMES = [{id:'1m',l:'1m'},{id:'5m',l:'5m'},{id:'15m',l:'15m'},{id:'30m',l:'30m'},{id:'1h',l:'1h'},{id:'4h',l:'4h'},{id:'1d',l:'1d'},{id:'1W',l:'1W'},{id:'1M',l:'1M'}];
 
+// Timeframe seconds for candle alignment
+function getTimeframeSeconds(tf){
+  if(tf==='1m') return 60;
+  if(tf==='5m') return 300;
+  if(tf==='15m') return 900;
+  if(tf==='30m') return 1800;
+  if(tf==='1h') return 3600;
+  if(tf==='4h') return 14400;
+  if(tf==='1d') return 86400;
+  return 60;
+}
+
 // Timeframe seconds for proper candle aggregation
 // TF_SECONDS removed - tick-based candle building removed
 
@@ -621,11 +633,19 @@ function updateLiveCandle(price){
 }
 
 function updateChartCandle(candleData){
-  // Handle market_candles_v2 Realtime UPDATE event
+  // Handle market_candles_v2 Realtime UPDATE event with timestamp alignment
   // candleData: {canonical_symbol, timeframe, open_time, open, high, low, close, is_closed}
   if(!candleSeries||!candles.length||!candleData) return;
   
-  const candleTime = Math.floor(new Date(candleData.open_time).getTime()/1000);
+  // 1. Convert timeframe to seconds
+  const tfSeconds = getTimeframeSeconds(CURRENT_TF);
+  
+  // 2. Get raw time from server
+  const rawTime = Math.floor(new Date(candleData.open_time).getTime()/1000);
+  
+  // 3. Align timestamp to timeframe bucket (key fix for choppy candles)
+  const candleTime = Math.floor(rawTime / tfSeconds) * tfSeconds;
+  
   const chartCandle = {
     time: candleTime,
     open: Number(candleData.open),
@@ -635,31 +655,44 @@ function updateChartCandle(candleData){
     volume: Number(candleData.volume||0)
   };
   
-  const last = candles[candles.length-1];
-  const lastTime = last ? last.time : 0;
+  const lastIndex = candles.length - 1;
+  const lastCandle = candles[lastIndex];
   const debugTime = new Date(candleTime*1000).toISOString().substr(11,8);
 
-  // Case 1: Update for LAST candle - EXACT timestamp match
-  if(last && last.time === chartCandle.time){
-    candles[candles.length-1] = chartCandle;
+  // Case 1: Update for LAST candle - EXACT aligned timestamp match
+  if(lastCandle && lastCandle.time === candleTime){
+    candles[lastIndex] = chartCandle;
     candleSeries.update(chartCandle);
-    // candleMap already has correct index
     console.log(`[RTC] REPLACE last: ${debugTime} C=${chartCandle.close}`);
     updateChHeader(); updateOHLC();
     return;
   }
-
-  // Case 2: Update for candle in MIDDLE of array (or last if Case 1 missed) - EXACT match
-  const idx = candleMap.get(chartCandle.time);
-  if(idx !== undefined && idx >= 0 && idx < candles.length){
+  
+  // Case 2: Completely NEW candle - append (timestamp strictly greater than last)
+  if(chartCandle.time > lastCandle.time){
+    candles.push(chartCandle);
+    candleMap.set(candleTime, candles.length - 1);
+    candleSeries.update(chartCandle);
+    console.log(`[RTC] APPEND: ${debugTime} C=${chartCandle.close} total=${candles.length}`);
+    if(candles.length > 1000){
+      const removed = candles.shift();
+      candleMap.delete(removed.time);
+      rebuildCandleMap();
+    }
+    updateChHeader(); updateOHLC();
+    return;
+  }
+  
+  // Case 3: Update for candle in MIDDLE of array - EXACT match
+  const idx = candleMap.get(candleTime);
+  if(idx !== undefined && idx >= 0 && idx < lastIndex){
     candles[idx] = chartCandle;
     candleSeries.update(chartCandle);
     console.log(`[RTC] REPLACE mid[${idx}]: ${debugTime} C=${chartCandle.close}`);
     updateChHeader(); updateOHLC();
     return;
   }
-
-    // Case 3: Completely NEW candle - append (timestamp strictly greater than last)
+}
     if(chartCandle.time > lastTime){
       candles.push(chartCandle);
       candleMap.set(chartCandle.time, candles.length-1);
