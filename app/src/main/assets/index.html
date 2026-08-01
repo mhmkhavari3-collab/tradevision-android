@@ -290,7 +290,7 @@ function goChart(sym){
   candleMap.clear(); // FIX 7
   if(candleSeries) candleSeries.setData([]);
   if(chart) {
-    chart.remove(); // FIX 4: Destroy chart instance
+    try{ chart.remove(); }catch(e){console.error('[goChart] chart.remove error:', e)}
     chart = null;
     candleSeries = null;
   }
@@ -452,7 +452,12 @@ function setWSStatus(connected){
 function initChart(){
   if(chart) return; // Chart instance stays alive
   const el=document.getElementById('chartEl');
-  chart=LightweightCharts.createChart(el,{
+  if(!el){
+    console.error('[initChart] chartEl not found');
+    return;
+  }
+  try{
+    chart=LightweightCharts.createChart(el,{
     width:el.clientWidth,height:el.clientHeight||400,autoSize:true,
     layout:{background:{color:'#0a0e14'},textColor:'#787b86',fontSize:11},
     grid:{vertLines:{color:'#1e222d'},horzLines:{color:'#1e222d'}},
@@ -493,6 +498,11 @@ function initChart(){
   }, 3000);
   // FIX 6: Removed ResizeObserver - using autoSize:true instead
   applyPrecision();
+}catch(e){
+    console.error('[initChart] Error:', e);
+    chart = null;
+    candleSeries = null;
+  }
 }
 function applyPrecision(){if(candleSeries&&cur)candleSeries.applyOptions({priceFormat:{type:'price',precision:cur.prec,minMove:cur.minMove}})}
 
@@ -548,10 +558,14 @@ async function loadCandles(sym,tf){
 
 function setChartData(){
   if(!candleSeries||!candles.length) return;
-  candleSeries.setData(candles); // ONLY ONCE for history
-  rebuildCandleMap();
-  chart.timeScale().fitContent();
-  updateChHeader(); updateOHLC();
+  try{
+    candleSeries.setData(candles); // ONLY ONCE for history
+    rebuildCandleMap();
+    chart.timeScale().fitContent();
+    updateChHeader(); updateOHLC();
+  }catch(e){
+    console.error('[setChartData] Error:', e);
+  }
 }
 
 function updateLiveCandle(price){
@@ -723,7 +737,7 @@ function setTF(tf){
     candleSeries.setData([]);  // Clear old candles
     candles = [];
     candleMap.clear(); // FIX 7: Clear map on timeframe change
-    chart.remove(); // FIX 4: Destroy chart instance
+    try{ chart.remove(); }catch(e){console.error('[setTF] chart.remove error:', e)}
     chart = null;
     candleSeries = null;
   }
@@ -748,17 +762,20 @@ function testSupabase(){
 
 /* ============ INIT ============ */
 function init(){
+  console.log('[BOOT] started');
   // UI FIRST - buttons work immediately
-  buildWL(); buildTFBar();
+  try{buildWL(); console.log('[BOOT] watchlist ok');}catch(e){console.error('[BOOT] watchlist error:', e)}
+  try{buildTFBar(); console.log('[BOOT] tfbar ok');}catch(e){console.error('[BOOT] tfbar error:', e)}
   
   // Network LAST - isolated from UI
-  try{fetchPrices(); startPricePoll();}catch(e){}
+  try{fetchPrices(); startPricePoll(); console.log('[BOOT] prices ok');}catch(e){console.error('[BOOT] prices error:', e)}
   
   history.pushState(null,'',location.href);
   window.addEventListener('popstate',()=>history.pushState(null,'',location.href));
   document.addEventListener('touchmove',e=>{if(e.target===document.body||e.target===document.getElementById('app'))e.preventDefault()},{passive:false});
   document.body.style.touchAction='none';document.body.style.overscrollBehavior='none';
   document.documentElement.style.overscrollBehavior='none';
+  console.log('[BOOT] complete');
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 </script>
