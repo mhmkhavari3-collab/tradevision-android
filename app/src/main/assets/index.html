@@ -285,10 +285,15 @@ function goChart(sym){
   disconnectWS();
   stopChartPoll();
   
-  // Clear candle state
+  // Clear candle state COMPLETELY
   candles = [];
-  candleMap.clear(); // FIX 1: Clear map on symbol change
+  candleMap.clear(); // FIX 7
   if(candleSeries) candleSeries.setData([]);
+  if(chart) {
+    chart.remove(); // FIX 4: Destroy chart instance
+    chart = null;
+    candleSeries = null;
+  }
   
   // Update current symbol
   cur = s;
@@ -434,6 +439,7 @@ function disconnectWS(){
     supabaseChannel = null;
   }
   if(wsReconnectTimer){ clearTimeout(wsReconnectTimer); wsReconnectTimer=null; }
+  wsReconnectAttempts = 0; // FIX 8: Reset reconnect attempts on manual disconnect
   setWSStatus(false);
 }
 
@@ -570,47 +576,47 @@ function updateChartCandle(candleData){
   };
   
   const last = candles[candles.length-1];
-  const lastTime = last ? last.time : 0;
-  const debugTime = new Date(candleTime*1000).toISOString().substr(11,8);
-  
-  // Case 1: Update for LAST candle (most common - same minute)
-  if(last && Math.abs(last.time - chartCandle.time) < 60){
-    candles[candles.length-1] = chartCandle;
-    candleSeries.update(chartCandle);
-    candleMap.set(chartCandle.time, candles.length-1);
-    console.log(`[RTC] REPLACE last: ${debugTime} C=${chartCandle.close}`);
-    updateChHeader(); updateOHLC();
-    return;
-  }
-  
-  // Case 2: Update for candle in MIDDLE of array (non-last)
-  const idx = candleMap.get(chartCandle.time);
-  if(idx !== undefined && idx >= 0 && idx < candles.length){
-    candles[idx] = chartCandle;
-    candleSeries.update(chartCandle);
-    console.log(`[RTC] REPLACE mid[${idx}]: ${debugTime} C=${chartCandle.close}`);
-    updateChHeader(); updateOHLC();
-    return;
-  }
-  
-  // Case 3: Completely NEW candle - append
-  if(chartCandle.time > lastTime){
-    candles.push(chartCandle);
-    candleMap.set(chartCandle.time, candles.length-1);
-    candleSeries.update(chartCandle);
-    console.log(`[RTC] APPEND: ${debugTime} C=${chartCandle.close} total=${candles.length}`);
-    if(candles.length > 1000){
-      const removed = candles.shift();
-      candleMap.delete(removed.time);
-      rebuildCandleMap(); // Rebuild after shift
+    const lastTime = last ? last.time : 0;
+    const debugTime = new Date(candleTime*1000).toISOString().substr(11,8);
+
+    // Case 1: Update for LAST candle - EXACT timestamp match
+    if(last && last.time === chartCandle.time){
+      candles[candles.length-1] = chartCandle;
+      candleSeries.update(chartCandle);
+      // candleMap already has correct index
+      console.log(`[RTC] REPLACE last: ${debugTime} C=${chartCandle.close}`);
+      updateChHeader(); updateOHLC();
+      return;
     }
-    updateChHeader(); updateOHLC();
-    return;
+
+    // Case 2: Update for candle in MIDDLE of array (non-last) - EXACT match
+    const idx = candleMap.get(chartCandle.time);
+    if(idx !== undefined && idx >= 0 && idx < candles.length - 1){
+      candles[idx] = chartCandle;
+      candleSeries.update(chartCandle);
+      console.log(`[RTC] REPLACE mid[${idx}]: ${debugTime} C=${chartCandle.close}`);
+      updateChHeader(); updateOHLC();
+      return;
+    }
+
+    // Case 3: Completely NEW candle - append (timestamp strictly greater than last)
+    if(chartCandle.time > lastTime){
+      candles.push(chartCandle);
+      candleMap.set(chartCandle.time, candles.length-1);
+      candleSeries.update(chartCandle);
+      console.log(`[RTC] APPEND: ${debugTime} C=${chartCandle.close} total=${candles.length}`);
+      if(candles.length > 1000){
+        const removed = candles.shift();
+        candleMap.delete(removed.time);
+        rebuildCandleMap(); // Rebuild after shift
+      }
+      updateChHeader(); updateOHLC();
+      return;
+    }
+
+    // Case 4: Candle is OLDER than last - log but ignore
+    console.log(`[RTC] STALE: ${debugTime} (last=${new Date(lastTime*1000).toISOString().substr(11,8)})`);
   }
-  
-  // Case 4: Candle is OLDER than last - log but ignore
-  console.log(`[RTC] STALE: ${debugTime} (last=${new Date(lastTime*1000).toISOString().substr(11,8)})`);
-}
 
 function updateOHLC(){
   const last=candles[candles.length-1]; if(!last) return;
@@ -671,11 +677,23 @@ async function loadMoreHistory(){
     })).filter(c => !candleMap.has(c.time) && !isNaN(c.open));
     
     if(nc.length){
+      // FIX 3: Save visible range BEFORE prepend
+      const visibleRange = chart.timeScale().getVisibleLogicalRange();
+      // FIX 3: Prepend by updating each candle individually (no setData)
       candles = nc.concat(candles);
-      candleSeries.setData(candles);
       rebuildCandleMap();
-      // Don't restore position - user stays at latest data
-      // They can scroll left to see older candles
+      // FIX 3: Use update() for each prepended candle
+      for(const c of nc){
+        candleSeries.update(c);
+      }
+      // FIX 5: Restore visible range after prepend (shift by nc.length)
+      if(visibleRange){
+        const newRange = { 
+          from: visibleRange.from + nc.length, 
+          to: visibleRange.to + nc.length 
+        };
+        chart.timeScale().setVisibleLogicalRange(newRange);
+      }
       console.log(`[loadMoreHistory] PREPEND: +${nc.length} candles, total=${candles.length}`);
       toast('+'+nc.length+' candles');
       // Check if we're still near left edge after prepend - if so, load more
@@ -693,22 +711,26 @@ async function loadMoreHistory(){
     document.getElementById('loadInd').className='load-ind';
   }
 }
-
 function retryChart(){loadCandles(cur.sym,CURRENT_TF)}
 
 /* ============ TIMEFRAME ============ */
-function buildTFBar(){let h='';TIMEFRAMES.forEach(t=>{h+='<div class="tf-btn'+(t.id===CURRENT_TF?' active':'')+'" data-tf="'+t.id+'" onclick="setTF(\''+t.id+'\')">'+t.l+'</div>'});document.getElementById('tfBar').innerHTML=h}
+function buildTFBar(){let h='';TIMEFRAMES.forEach(t=>{h+='<div class="tf-btn'+(t.id===CURRENT_TF?' active':'')+'" data-tf="'+t.id+'" onclick="setTF(\\''+t.id+'\\')">'+t.l+'</div>'});document.getElementById('tfBar').innerHTML=h}
 function setTF(tf){
   CURRENT_TF=tf; 
   buildTFBar();
-  // Clear chart and reload for new timeframe
+  // Clear chart and reload for new timeframe - FULL RESET
   if(chart && candleSeries){
     candleSeries.setData([]);  // Clear old candles
     candles = [];
-    candleMap.clear(); // FIX 1: Clear map on timeframe change
+    candleMap.clear(); // FIX 7: Clear map on timeframe change
+    chart.remove(); // FIX 4: Destroy chart instance
+    chart = null;
+    candleSeries = null;
   }
+  // FIX 7: Use initialLoadSeqId for TF change
+  const mySeq=++initialLoadSeqId;
   loadCandles(cur.sym, tf).then(() => {
-    if(page==='CH') connectWS(cur.sym);
+    if(page==='CH' && mySeq===initialLoadSeqId) connectWS(cur.sym);
   });
 }
 
