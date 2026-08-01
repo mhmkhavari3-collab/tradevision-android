@@ -515,10 +515,19 @@ async function loadCandles(sym,tf){
   // Normalize to canonical symbol
   const canonSym = normalizeSymbol(sym);
 
+  // FIX: Add timeout to prevent hanging forever
+  const FETCH_TIMEOUT_MS = 10000; // 10 seconds
+  function fetchWithTimeout(url, options, timeoutMs){
+    return Promise.race([
+      fetch(url, options),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), timeoutMs))
+    ]);
+  }
+
   try{
     // Get newest 300 candles (desc), then reverse for chart (asc)
     const url = `${SUPABASE_URL}/rest/v1/market_candles?canonical_symbol=eq.${canonSym}&timeframe=eq.${tf}&order=open_time.desc&limit=300`;
-    const r = await fetch(url, {headers:{'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY}});
+    const r = await fetchWithTimeout(url, {headers:{'apikey': SUPABASE_KEY, 'Authorization': 'Bearer '+SUPABASE_KEY}}, FETCH_TIMEOUT_MS);
     if(!r.ok){ throw new Error(`HTTP ${r.status}`); }
     const data = await r.json();
     if(!data.length){
@@ -715,12 +724,13 @@ function buildTFBar(){let h='';TIMEFRAMES.forEach(t=>{h+='<div class="tf-btn'+(t
 function setTF(tf){
   CURRENT_TF=tf;
   buildTFBar();
-  
+
   // Full reset on timeframe change - destroy chart, clear state
+  disconnectWS(); // FIX: Close old Realtime channel before switching
   destroyChart();
   candles = [];
   candleMap.clear();
-  
+
   loadCandles(cur.sym, tf).then(() => {
     if(page==='CH') connectWS(cur.sym);
   });
