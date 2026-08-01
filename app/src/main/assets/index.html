@@ -479,13 +479,14 @@ function handleReconnect(sym){
 }
 
 function disconnectWS(){
-  if(supabaseChannel){
-    try{ supabaseChannel.unsubscribe(); }catch(e){}
+  if(supabaseChannel && supabaseClient){
+    try{ supabaseClient.removeChannel(supabaseChannel); }catch(e){}
     supabaseChannel = null;
+    console.log('[WS] Previous Realtime channel disconnected successfully.');
   }
   if(wsReconnectTimer){ clearTimeout(wsReconnectTimer); wsReconnectTimer=null; }
-  wsReconnectAttempts = 0; // FIX 8: Reset reconnect attempts on manual disconnect
   setWSStatus(false);
+}
 }
 
 function setWSStatus(connected){
@@ -736,26 +737,28 @@ async function loadMoreHistory(){
     })).filter(c => !candleMap.has(c.time) && !isNaN(c.open));
     
     if(nc.length){
-      // FIX 3: Save visible range BEFORE prepend
+      // ۱. ذخیره موقعیت فعلی دید کاربر قبل از تغییر دیتاسِت
       const visibleRange = chart.timeScale().getVisibleLogicalRange();
-      // FIX 3: Prepend by updating each candle individually (no setData)
+      
+      // ۲. ترکیب آرایه‌ها (دیتای جدید در ابتدا قرار می‌گیرد)
       candles = nc.concat(candles);
       rebuildCandleMap();
-      // FIX 3: Use update() for each prepended candle
-      for(const c of nc){
-        candleSeries.update(c);
-      }
-      // FIX 5: Restore visible range after prepend (shift by nc.length)
+      
+      // ۳. آپدیت یکپارچه کل چارت (اینجا حتماً باید setData باشد)
+      candleSeries.setData(candles); 
+      
+      // ۴. جبران شیفتِ آرایه: برگرداندن اسکرول دقیقاً به همان جایی که کاربر بود
       if(visibleRange){
-        const newRange = { 
-          from: visibleRange.from + nc.length, 
-          to: visibleRange.to + nc.length 
-        };
-        chart.timeScale().setVisibleLogicalRange(newRange);
+        chart.timeScale().setVisibleLogicalRange({
+          from: visibleRange.from + nc.length,
+          to: visibleRange.to + nc.length
+        });
       }
+      
       console.log(`[loadMoreHistory] PREPEND: +${nc.length} candles, total=${candles.length}`);
       toast('+'+nc.length+' candles');
-      // Check if we're still near left edge after prepend - if so, load more
+      
+      // ۵. بررسی اینکه آیا کاربر هنوز به ته چارت چسبیده است یا خیر
       setTimeout(()=>{
         if(chart && !loadingMore){
           const vr = chart.timeScale().getVisibleLogicalRange();
