@@ -366,9 +366,13 @@ async def fetch_all_prices(session: aiohttp.ClientSession):
                             candles = data.get("candles", [])
                             if candles:
                                 c = candles[0]
-                                mid = float(c.get("mid", {}).get("m", 0))
-                                bid = float(c.get("bid", {}).get("b", mid))
-                                ask = float(c.get("ask", {}).get("a", mid))
+                                mid_data = c.get("mid", {})
+                                # OANDA mid has o, h, l, c — calculate mid as average of O and C
+                                mid = (float(mid_data.get("o", 0)) + float(mid_data.get("c", 0))) / 2
+                                bid_data = c.get("bid", {})
+                                ask_data = c.get("ask", {})
+                                bid = float(bid_data.get("b", mid)) if bid_data else mid
+                                ask = float(ask_data.get("a", mid)) if ask_data else mid
                                 supabase.table("market_prices").upsert({
                                     "canonical_symbol": canonical,
                                     "mid_price": mid,
