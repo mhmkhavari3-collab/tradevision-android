@@ -416,7 +416,7 @@ function initChart(){
   });
   chart.timeScale().subscribeVisibleLogicalRangeChange(r=>{
     if(!r||!candles||candles.length<2) return;
-    if(r.from<=10) loadMoreHistory();
+    if(r.from<=10 && !loadingMore) loadMoreHistory();
   });
   var rt=null;new ResizeObserver(()=>{if(rt)clearTimeout(rt);rt=setTimeout(()=>{if(chart&&el)chart.applyOptions({width:el.clientWidth,height:el.clientHeight})},100)}).observe(el);
   applyPrecision();
@@ -447,6 +447,7 @@ async function loadCandles(sym,tf){
     }
     // Reverse: Supabase returns newest first (desc), chart needs oldest first (asc)
     const reversed = data.reverse();
+    console.log(`[loadCandles] OK: ${canonSym}/${tf} rows=${reversed.length} oldest=${reversed[0]?.open_time} newest=${reversed[reversed.length-1]?.open_time}`);
     // Convert Supabase format to chart format
     candles = reversed.map(c => ({
       time: Math.floor(new Date(c.open_time).getTime()/1000),
@@ -503,10 +504,12 @@ function updateChartCandle(candleData){
     // Same candle - update in place (replace reference)
     candles[candles.length-1] = chartCandle;
     candleSeries.update(chartCandle);
+    console.log(`[updateChartCandle] REPLACE: ${new Date(chartCandle.time*1000).toISOString()} O=${chartCandle.open} H=${chartCandle.high} L=${chartCandle.low} C=${chartCandle.close}`);
   }else if(last && chartCandle.time > last.time){
     // New candle - append
     candles.push(chartCandle);
     candleSeries.update(chartCandle);
+    console.log(`[updateChartCandle] APPEND: ${new Date(chartCandle.time*1000).toISOString()} O=${chartCandle.open} H=${chartCandle.high} L=${chartCandle.low} C=${chartCandle.close}`);
     // Keep max 1000 candles
     if(candles.length > 1000) candles.shift();
   }
@@ -535,6 +538,8 @@ function stopChartPoll(){if(chartPollTimer){clearInterval(chartPollTimer);chartP
 async function loadMoreHistory(){
   if(!cur||loadingMore||!candles.length) return; loadingMore=true;
   const oldest=candles[0].time, mySeq=++seqId;
+  const oldestDate = new Date(oldest*1000).toISOString();
+  console.log(`[loadMoreHistory] START: oldest=${oldestDate}, candles_before=${candles.length}`);
   document.getElementById('loadInd').className='load-ind active';
 
   // Normalize to canonical symbol
@@ -546,6 +551,7 @@ async function loadMoreHistory(){
     if(!r.ok){ throw new Error(`HTTP ${r.status}`); }
     const data = await r.json();
     if(mySeq!==seqId||!data||!data.length){
+      console.log(`[loadMoreHistory] NO DATA: rows=${data?data.length:0}`);
       loadingMore=false;
       document.getElementById('loadInd').className='load-ind';
       return;
@@ -561,8 +567,16 @@ async function loadMoreHistory(){
     })).filter(c => !candles.some(e => e.time === c.time) && !isNaN(c.open));
     
     if(nc.length){
+      // Save current visible range before prepend
+      const visibleRange = chart.timeScale().getVisibleLogicalRange();
       candles = nc.concat(candles);
       candleSeries.setData(candles);
+      // Restore visible range - shift by number of new candles
+      if(visibleRange){
+        const newRange = { from: visibleRange.from + nc.length, to: visibleRange.to + nc.length };
+        chart.timeScale().setVisibleLogicalRange(newRange);
+      }
+      console.log(`[loadMoreHistory] PREPEND: +${nc.length} candles, total=${candles.length}, newest_old=${nc[0]?new Date(nc[0].time*1000).toISOString():'?'}, oldest_new=${nc[nc.length-1]?new Date(nc[nc.length-1].time*1000).toISOString():'?'}`);
       toast('+'+nc.length+' candles');
     }
   }catch(e){
