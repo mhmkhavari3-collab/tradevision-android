@@ -680,11 +680,19 @@ async function loadMoreHistory(){
       candles = nc.concat(candles);
       candleSeries.setData(candles);
       rebuildCandleMap();
-      console.log(`[HISTORY_APPEND] +${nc.length} candles, newTotal=${candles.length}`);
+
+      // Log visible range after prepend
+      const vrAfter = chart ? chart.timeScale().getVisibleLogicalRange() : null;
+      const oldestNew = candles[0] ? new Date(candles[0].time*1000).toISOString().substr(0,16) : '?';
+      const newestNew = candles[candles.length-1] ? new Date(candles[candles.length-1].time*1000).toISOString().substr(0,16) : '?';
+      console.log(`[HISTORY_APPEND] +${nc.length} candles, newTotal=${candles.length}, oldest=${oldestNew}, newest=${newestNew}`);
+      console.log(`[VR_AFTER] from=${vrAfter?.from?.toFixed(2)} to=${vrAfter?.to?.toFixed(2)} totalBars=${candles.length}`);
+
       toast('+'+nc.length+' candles');
       setTimeout(()=>{
         if(chart && !loadingMore){
           const vr = chart.timeScale().getVisibleLogicalRange();
+          console.log(`[VR_200MS] from=${vr?.from?.toFixed(2)} to=${vr?.to?.toFixed(2)}`);
           if(vr && vr.from <= 20) loadMoreHistory();
         }
       }, 200);
