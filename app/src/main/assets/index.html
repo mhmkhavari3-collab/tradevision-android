@@ -414,6 +414,7 @@ function disconnectCandleChannel(){
 // Called on symbol/TF switch — only rebuilds candle channel, prices stays
 function connectWS(sym){
   disconnectCandleChannel();
+  connectCandlesChannel(sym, CURRENT_TF);  // FIX: subscribe to candle Realtime updates
   connectPricesChannel();
 }
 
