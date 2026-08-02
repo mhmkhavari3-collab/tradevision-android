@@ -464,11 +464,9 @@ function initChart(){
   chart.timeScale().subscribeVisibleLogicalRangeChange(r=>{
     if(!r||!candles||candles.length<2) return;
     console.log(`[HISTORY_TRIGGER] symbol=${cur.sym} timeframe=${CURRENT_TF} visibleFrom=${r.from.toFixed(2)} visibleTo=${r.to.toFixed(2)} candlesLength=${candles.length}`);
-    // Trigger when user scrolls near left edge (within 20 bars)
-    // FIX: History Scroll sensitivity + loading safety
+    // Trigger when user scrolls near left edge (within 50 bars)
     if(r.from <= 50 && !loadingMore) {
-      loadingMore = true;
-      loadMoreHistory().finally(() => { loadingMore = false; });
+      loadMoreHistory();  // loadingMore is managed inside loadMoreHistory
     }
   });
   // Fallback: poll every 3s to check if user is near left edge
