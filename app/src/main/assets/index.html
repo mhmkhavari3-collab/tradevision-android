@@ -323,119 +323,93 @@ function fetchPrices(){
     if(page==='CH') updateChHeader();
   }).catch(e=>console.error('[fetchPrices] Error:', e));
 }
-function startPricePoll(){stopPricePoll();fetchPrices();pricePollTimer=setInterval(fetchPrices,5000)}
-function stopPricePoll(){if(pricePollTimer){clearInterval(pricePollTimer);pricePollTimer=null}}
+// prices now via Realtime (connectPricesChannel), no polling needed
 
 /* ============ SUPABASE REALTIME ============ */
-let supabaseChannel = null;
+let priceChannel = null;    // market_prices — subscribe ONCE, never recreate
+let candleChannel = null;   // market_candles — per symbol+TF, recreate on switch
 
-// FIX 5: Realtime reconnect state
 let wsReconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = 10;
 const RECONNECT_DELAY_MS = 3000;
 
-function connectWS(sym){
-  disconnectWS();
-  
-  try{
-    const rtUrl = 'https://mbocedojtnvyfhlclnpm.supabase.co';
-    const rtKey = SUPABASE_KEY;
-    
-    // FIX 5: Reuse single Supabase client
-    if(!supabaseClient){
-      supabaseClient = supabase.createClient(rtUrl, rtKey);
-    }
-    
-    supabaseChannel = supabaseClient.channel('market-realtime');
-    
-    // 1. Subscribe to market_prices UPDATE events (all 17 symbols)
-    supabaseChannel.on('postgres_changes', { 
-      event: 'UPDATE', 
-      schema: 'public', 
-      table: 'market_prices'
-    }, (payload) => {
-      const p = payload.new;
-      if(p && p.canonical_symbol && p.mid_price != null){
-        const s = p.canonical_symbol;
-        const old = prices[s] || {};
-        // Track previous price for green/red comparison
-        const prevMid = old.mid != null ? old.mid : null;
-        prices[s] = {
-          mid: p.mid_price,
-          bid: p.bid,
-          ask: p.ask,
-          prev: prevMid || p.mid_price,
-          time: p.updated_at ? new Date(p.updated_at).getTime() : Date.now()
-        };
-        // Update chart header if viewing this symbol
-        if(page==='CH' && cur && s === cur.sym){
-          updateChHeader();
-        }
-        // Update watchlist if visible
-        if(page==='WL') buildWL();
-      }
-    });
-    
-    // 2. Subscribe to market_candles UPDATE events (current symbol + TF)
-    supabaseChannel.on('postgres_changes', {
-      event: 'UPDATE',
-      schema: 'public',
-      table: 'market_candles'
-    }, (payload) => {
-      const p = payload.new;
-      if(p && p.canonical_symbol && p.timeframe && page==='CH' && cur){
-        // Only process if matches current symbol and timeframe
-        if(p.canonical_symbol === cur.sym && p.timeframe === CURRENT_TF){
-          console.log(`[Realtime] candle UPDATE: ${p.canonical_symbol}/${p.timeframe} ${p.open_time} O=${p.open} H=${p.high} L=${p.low} C=${p.close}`);
-          updateChartCandle(p);
-        }
-      }
-    });
-    
-    supabaseChannel.subscribe((status) => {
-      console.log('[Supabase] Realtime status:', status);
-      setWSStatus(status === 'SUBSCRIBED');
-      
-      // FIX 5: Reconnect logic
-      if(status === 'SUBSCRIBED'){
-        wsReconnectAttempts = 0;
-        console.log('[Supabase] Realtime connected, subscribed to market_prices + market_candles');
-      }else if(status === 'CHANNEL_ERROR' || status === 'CLOSED' || status === 'TIMED_OUT'){
-        handleReconnect(sym);
-      }
-    });
-    
-  }catch(e){
-    console.error('[Supabase] Realtime error:', e);
-    setWSStatus(false);
-    handleReconnect(sym);
+function ensureClient(){
+  if(!supabaseClient){
+    supabaseClient = supabase.createClient('https://mbocedojtnvyfhlclnpm.supabase.co', SUPABASE_KEY);
   }
 }
 
-// FIX 5: Auto-reconnect handler
-function handleReconnect(sym){
-  if(wsReconnectAttempts >= MAX_RECONNECT_ATTEMPTS){
-    console.error('[Supabase] Max reconnect attempts reached');
-    setWSStatus(false);
-    return;
-  }
-  wsReconnectAttempts++;
-  const delay = RECONNECT_DELAY_MS * wsReconnectAttempts;
-  console.log(`[Supabase] Reconnecting in ${delay}ms (attempt ${wsReconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-  
-  if(wsReconnectTimer){ clearTimeout(wsReconnectTimer); }
-  wsReconnectTimer = setTimeout(()=>{
-    if(page === 'CH' && cur){
-      connectWS(sym);
+// market_prices: subscribe ONCE for all 17 symbols, never destroy
+function connectPricesChannel(){
+  if(priceChannel) return; // already active — don't recreate
+  ensureClient();
+  priceChannel = supabaseClient.channel('prices-all');
+  priceChannel.on('postgres_changes', {
+    event: 'UPDATE',
+    schema: 'public',
+    table: 'market_prices'
+  }, (payload) => {
+    const p = payload.new;
+    if(p && p.canonical_symbol && p.mid_price != null){
+      const s = p.canonical_symbol;
+      const old = prices[s] || {};
+      const prevMid = old.mid != null ? old.mid : null;
+      prices[s] = {
+        mid: p.mid_price,
+        bid: p.bid_price,
+        ask: p.ask_price,
+        prev: prevMid || p.mid_price,
+        time: p.updated_at ? new Date(p.updated_at).getTime() : Date.now()
+      };
+      if(page==='CH' && cur && s === cur.sym) updateChHeader();
+      if(page==='WL') buildWL();
     }
-  }, delay);
+  });
+  priceChannel.subscribe((status) => {
+    console.log('[RT] prices:', status);
+  });
+}
+
+// market_candles: filter by symbol+TF, recreate on switch
+function connectCandlesChannel(sym, tf){
+  disconnectCandleChannel();
+  ensureClient();
+  const chName = `candles_${sym}_${tf}`;
+  candleChannel = supabaseClient.channel(chName);
+  candleChannel.on('postgres_changes', {
+    event: 'UPDATE',
+    schema: 'public',
+    table: 'market_candles',
+    filter: `canonical_symbol=eq.${sym},timeframe=eq.${tf}`
+  }, (payload) => {
+    const p = payload.new;
+    if(p && page==='CH' && cur){
+      console.log(`[RT] candle: ${p.canonical_symbol}/${p.timeframe} O=${p.open} H=${p.high} L=${p.low} C=${p.close}`);
+      updateChartCandle(p);
+    }
+  });
+  candleChannel.subscribe((status) => {
+    console.log(`[RT] candles ${sym}/${tf}:`, status);
+    setWSStatus(status === 'SUBSCRIBED');
+  });
+}
+
+function disconnectCandleChannel(){
+  if(candleChannel){
+    try{ supabaseClient.removeChannel(candleChannel); }catch(e){}
+    candleChannel = null;
+  }
+}
+
+// Called on symbol/TF switch — only rebuilds candle channel, prices stays
+function connectWS(sym){
+  disconnectCandleChannel();
+  connectPricesChannel();
 }
 
 function disconnectWS(){
-  if(supabaseChannel){
-    try{ supabaseChannel.unsubscribe(); }catch(e){}
-    supabaseChannel = null;
-  }
+  disconnectCandleChannel();
+  // prices channel intentionally kept alive — subscribe once for app lifetime
   if(wsReconnectTimer){ clearTimeout(wsReconnectTimer); wsReconnectTimer=null; }
   setWSStatus(false);
 }
