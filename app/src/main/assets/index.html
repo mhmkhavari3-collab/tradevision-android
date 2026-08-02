@@ -127,7 +127,7 @@ button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
     <div style="font-size:14px;font-weight:700;margin-bottom:8px;color:#787b86">ℹ️ About</div>
     <div style="font-size:12px;color:#787b86">
       TradeVision v1.0.32<br>
-      Build: <span style="color:#26a69a;font-family:monospace">feae0ed</span><br>
+      Build: <span style="color:#26a69a;font-family:monospace">ae5382a</span><br>
       Engine: Lightweight Charts<br>
       Data: Supabase Only (market_prices + market_candles)<br>
     </div>
@@ -282,6 +282,8 @@ function goChart(sym){
   const s=SYMBOLS.find(x=>x.sym===sym);
   if(!s) return;
 
+  const chBefore = supabaseClient ? supabaseClient.getChannels().length : 0;
+
   // Symbol switch: FULL RESET - destroy chart, clear all state
   disconnectWS();
   stopChartPoll();
@@ -297,6 +299,9 @@ function goChart(sym){
   applyPrecision();
 
   showPg('CH');
+
+  const chAfter = supabaseClient ? supabaseClient.getChannels().length : 0;
+  console.log(`[CHANNEL] goChart(${sym}): ${chBefore} → ${chAfter}`);
 }
 function fetchPrices(){
   // Fetch all 17 symbols from Supabase market_prices (canonical_symbol)
@@ -706,6 +711,8 @@ function setTF(tf){
   CURRENT_TF=tf;
   buildTFBar();
 
+  const chBefore = supabaseClient ? supabaseClient.getChannels().length : 0;
+
   // Full reset on timeframe change - destroy chart, clear state
   disconnectWS(); // FIX: Close old Realtime channel before switching
   destroyChart();
@@ -714,6 +721,8 @@ function setTF(tf){
 
   loadCandles(cur.sym, tf).then(() => {
     if(page==='CH') connectWS(cur.sym);
+    const chAfter = supabaseClient ? supabaseClient.getChannels().length : 0;
+    console.log(`[CHANNEL] setTF(${tf}): ${chBefore} → ${chAfter}`);
   });
 }
 
