@@ -21,8 +21,8 @@ from supabase import create_client, Client
 # CONFIGURATION
 # ============================================================
 
-SUPABASE_URL = "https://mbocedojtnvyfhlclnpm.supabase.co"
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ib2NlZG9qdG52eWZobGNsbnBtIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NTM5MzA0NywiZXhwIjoyMTAwOTY5MDQ3fQ.ZjZrKJZz-C7hKHB_HxbYUUodzDg715ddBEXNc9663vk")
+SUPABASE_URL = "https://eeojsldqazrnavznrela.supabase.co"
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlb2pzbGRxYXpybmF2em5yZWxhIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4NTYzMjkxMiwiZXhwIjoyMTAxMjA4OTEyfQ.Nff1aPBzpOLUcnEe7FYUwx5TACOBQCk-8oeTvzQGGro")
 
 OANDA_ACCOUNT_ID = "001-001-21958739-001"
 OANDA_TOKEN = os.getenv("OANDA_TOKEN", "")
@@ -268,7 +268,9 @@ async def fetch_okx_candles(
             current_after = str(int(oldest_ts) - 1)
 
             # Stop if we've gone past the requested time range
-            if int(oldest_ts) < after:
+            # 30 days ago = from_ms
+            if int(oldest_ts) < from_ms:
+                logging.info(f'[DEBUG] Reached start date - STOPPING. oldest={oldest_ts}, from={from_ms}')
                 break
 
             params = {"instId": inst_id, "bar": bar, "after": current_after, "limit": str(limit)}

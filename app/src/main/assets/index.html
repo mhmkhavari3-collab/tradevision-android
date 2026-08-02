@@ -162,8 +162,8 @@ console.log('[TradeVision] v1.0.32 starting...');
 // PROXY removed - all data from Supabase only
 
 // ============ SUPABASE REALTIME CONFIG ============
-const SUPABASE_URL = 'https://mbocedojtnvyfhlclnpm.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1ib2NlZG9qdG52eWZobGNsbnBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUzOTMwNDcsImV4cCI6MjEwMDk2OTA0N30.1m8MCVAHHFCDd4QkspXf959XTulvRYJEBav1CPg5Gcs';
+const SUPABASE_URL = 'https://eeojsldqazrnavznrela.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlb2pzbGRxYXpybmF2em5yZWxhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU2MzI5MTIsImV4cCI6MjEwMTIwODkxMn0.pIVrpkaeLiO4ZyIN5ybmwveCy6mITen7CmV0erN25b8';
 const SYMBOLS = [
   {sym:'XAUUSD',name:'Gold',display:'XAU/USD',color:'#f0b90b',cat:'METALS',prec:2,minMove:0.01},
   {sym:'XAGUSD',name:'Silver',display:'XAG/USD',color:'#c0c0c0',cat:'METALS',prec:3,minMove:0.001},
@@ -337,7 +337,7 @@ const RECONNECT_DELAY_MS = 3000;
 
 function ensureClient(){
   if(!supabaseClient){
-    supabaseClient = supabase.createClient('https://mbocedojtnvyfhlclnpm.supabase.co', SUPABASE_KEY);
+    supabaseClient = supabase.createClient('https://eeojsldqazrnavznrela.supabase.co', SUPABASE_KEY);
   }
 }
 
@@ -720,7 +720,7 @@ function setTF(tf){
 
 /* ============ SETTINGS ============ */
 function getRealtimeUrl(){
-  return 'https://mbocedojtnvyfhlclnpm.supabase.co';
+  return 'https://eeojsldqazrnavznrela.supabase.co';
 }
 function testSupabase(){
   document.getElementById('serverStatus').innerHTML='<span style="color:#f0b90b">⏳ Testing Supabase...</span>';
