@@ -323,7 +323,9 @@ function fetchPrices(){
     if(page==='CH') updateChHeader();
   }).catch(e=>console.error('[fetchPrices] Error:', e));
 }
-// prices now via Realtime (connectPricesChannel), no polling needed
+// prices via Realtime (connectPricesChannel) + polling fallback every 5s
+function startPricePoll(){stopPricePoll();fetchPrices();pricePollTimer=setInterval(fetchPrices,5000)}
+function stopPricePoll(){if(pricePollTimer){clearInterval(pricePollTimer);pricePollTimer=null}}
 
 /* ============ SUPABASE REALTIME ============ */
 let priceChannel = null;    // market_prices — subscribe ONCE, never recreate
@@ -368,6 +370,8 @@ function connectPricesChannel(){
   priceChannel.subscribe((status) => {
     console.log('[RT] prices:', status);
   });
+  // Start polling fallback (harmless duplicate — ensures prices update even if Realtime has issues)
+  startPricePoll();
 }
 
 // market_candles: filter by symbol+TF, recreate on switch
@@ -737,8 +741,22 @@ function init(){
   history.pushState(null,'',location.href);
   window.addEventListener('popstate',()=>history.pushState(null,'',location.href));
   document.addEventListener('touchmove',e=>{if(e.target===document.body||e.target===document.getElementById('app'))e.preventDefault()},{passive:false});
-  document.body.style.touchAction='none';document.body.style.overscrollBehavior='none';
-  document.documentElement.style.overscrollBehavior='none';
+  document.body.style.touchAction='none';document.body.overscrollBehavior='none';document.documentElement.style.overscrollBehavior='none';
+  
+  // Background/foreground: pause Realtime + polling when hidden
+  document.addEventListener('visibilitychange', () => {
+    if(document.hidden){
+      disconnectWS();
+      stopPricePoll();
+      console.log('[BG] Paused');
+    } else {
+      if(page === 'CH' && cur){
+        connectWS(cur.sym);
+        startPricePoll();
+        console.log('[BG] Resumed');
+      }
+    }
+  });
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 </script>
