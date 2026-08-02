@@ -213,7 +213,8 @@ async def fetch_okx_candles(
     after: int,
     before: int,
     symbol: str = "",
-    tf: str = ""
+    tf: str = "",
+    from_ms: int = 0
 ) -> List[Dict]:
     """
     Fetch candles from OKX with pagination.
