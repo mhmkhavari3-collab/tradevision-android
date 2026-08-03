@@ -353,7 +353,7 @@ function connectPricesChannel(){
   ensureClient();
   priceChannel = supabaseClient.channel('prices-all');
   priceChannel.on('postgres_changes', {
-    event: 'UPDATE',
+    event: '*',
     schema: 'public',
     table: 'market_prices'
   }, (payload) => {
@@ -387,7 +387,7 @@ function connectCandlesChannel(sym, tf){
   const chName = `candles_${sym}_${tf}`;
   candleChannel = supabaseClient.channel(chName);
   candleChannel.on('postgres_changes', {
-    event: 'UPDATE',
+    event: '*',
     schema: 'public',
     table: 'market_candles',
     filter: `canonical_symbol=eq.${sym},timeframe=eq.${tf}`
