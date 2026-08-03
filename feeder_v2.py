@@ -9,13 +9,21 @@ TradeVision Data Worker v2
 
 import asyncio
 import aiohttp
+import json
 import os
 import logging
 import random
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from supabase import create_client, Client
+
+try:
+    import websockets
+    HAS_WEBSOCKETS = True
+except ImportError:
+    HAS_WEBSOCKETS = False
+    print("[WARN] websockets not installed - WebSocket mode unavailable")
 
 # ============================================================
 # CONFIGURATION
@@ -311,6 +319,9 @@ async def fetch_okx_candles(
 def parse_okx_candle(raw: List, canonical: str, tf: str) -> Optional[Candle]:
     try:
         ts = int(raw[0])
+        # OKX candle fields: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
+        # confirm: '1' = candle closed, '0' = candle still forming
+        confirm = raw[8] if len(raw) > 8 else '1'
         return Candle(
             canonical_symbol=canonical,
             timeframe=tf,
@@ -320,7 +331,7 @@ def parse_okx_candle(raw: List, canonical: str, tf: str) -> Optional[Candle]:
             low=float(raw[3]),
             close=float(raw[4]),
             volume=float(raw[5]),
-            is_closed=True,
+            is_closed=(confirm == '1'),
             source="okx"
         )
     except Exception as e:
@@ -379,6 +390,236 @@ async def upsert_price(c: Candle) -> bool:
     except Exception as e:
         log.error(f"Price upsert error {c.canonical_symbol}: {e}")
         return False
+
+
+# ============================================================
+# PHASE 4-A: OKX WebSocket Real-time Stream
+# ============================================================
+
+# Symbols enabled for WebSocket (start with BTC only)
+WS_ENABLED_SYMBOLS = {"BTC"}
+
+# OKX WebSocket business endpoint (candle data is on business, not public)
+OKX_WS_URL = "wss://ws.okx.com:8443/ws/v5/business"
+
+# Ping interval (OKX disconnects after 30s of silence)
+WS_PING_INTERVAL = 25  # seconds
+
+
+class OKXWebsocketManager:
+    """Manages OKX WebSocket connection for real-time candle data.
+    
+    Features:
+    - Auto-reconnect on disconnect
+    - Periodic ping to prevent 30s timeout
+    - Smart upsert: update open candles, insert closed ones
+    - validate_candle() before every upsert
+    """
+
+    def __init__(self, symbols: List[str], timeframes: List[str]):
+        self.url = OKX_WS_URL
+        self.symbols = symbols  # canonical symbols e.g. ["BTC"]
+        self.timeframes = timeframes  # e.g. ["1m", "5m", "15m"]
+        self.ws = None
+        self.running = False
+        self._last_message_time = 0.0
+        self._ping_task = None
+
+    async def start(self):
+        """Main entry: reconnect loop."""
+        self.running = True
+        while self.running:
+            try:
+                log.info(f"[WS] Connecting to OKX: {self.url}")
+                async with websockets.connect(
+                    self.url,
+                    ping_interval=None,  # We handle ping manually
+                    close_timeout=5,
+                    open_timeout=10,
+                ) as ws:
+                    self.ws = ws
+                    self._last_message_time = asyncio.get_event_loop().time()
+                    log.info("[WS] Connected successfully")
+
+                    # Subscribe to channels
+                    await self._subscribe()
+
+                    # Start ping task
+                    self._ping_task = asyncio.create_task(self._ping_loop())
+
+                    # Listen for messages
+                    await self._listen()
+
+            except websockets.exceptions.ConnectionClosed as e:
+                log.warning(f"[WS] Connection closed: {e}. Reconnecting in 5s...")
+            except Exception as e:
+                log.error(f"[WS] Connection error: {e}. Reconnecting in 5s...")
+            finally:
+                if self._ping_task and not self._ping_task.done():
+                    self._ping_task.cancel()
+                    try:
+                        await self._ping_task
+                    except asyncio.CancelledError:
+                        pass
+                self.ws = None
+
+            await asyncio.sleep(5)
+
+    async def _subscribe(self):
+        """Subscribe to candle channels for enabled symbols/timeframes."""
+        args = []
+        for canonical in self.symbols:
+            inst_id = SYMBOL_CONFIG[canonical]["okx"]
+            if not inst_id:
+                continue
+            for tf in self.timeframes:
+                bar = TF_OKX.get(tf)
+                if bar:
+                    args.append({"channel": f"candle{bar}", "instId": inst_id})
+
+        if not args:
+            log.warning("[WS] No channels to subscribe")
+            return
+
+        payload = {"op": "subscribe", "args": args}
+        await self.ws.send(json.dumps(payload))
+        log.info(f"[WS] Subscribed to {len(args)} channels: {[a['channel'] + ':' + a['instId'] for a in args]}")
+
+    async def _ping_loop(self):
+        """Send 'ping' every WS_PING_INTERVAL seconds to keep alive.
+        On error: close websocket to trigger immediate reconnect in start()."""
+        while True:
+            try:
+                await asyncio.sleep(WS_PING_INTERVAL)
+                if self.ws:
+                    await self.ws.send("ping")
+                    log.debug("[WS] Ping sent")
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                log.error(f"[WS] Ping error: {e} — closing to trigger reconnect")
+                # Close ws so _listen() fails immediately → start() reconnects
+                try:
+                    if self.ws:
+                        await self.ws.close()
+                except Exception:
+                    pass
+                break
+
+    async def _listen(self):
+        """Listen for incoming messages and process candle data."""
+        async for message in self.ws:
+            self._last_message_time = asyncio.get_event_loop().time()
+
+            # OKX pong response - ignore
+            if message == "pong":
+                log.debug("[WS] Pong received")
+                continue
+
+            try:
+                data = json.loads(message)
+            except json.JSONDecodeError:
+                log.warning(f"[WS] Non-JSON message: {message[:100]}")
+                continue
+
+            # Subscription confirmation
+            if data.get("event") == "subscribe":
+                log.info(f"[WS] Subscription confirmed: {data.get('arg', {})}")
+                continue
+
+            # Error from OKX
+            if data.get("event") == "error":
+                log.error(f"[WS] OKX error: {data}")
+                continue
+
+            # Candle data
+            if "data" in data and "arg" in data:
+                arg = data["arg"]
+                inst_id = arg.get("instId", "")
+                channel = arg.get("channel", "")
+
+                for item in data["data"]:
+                    await self._process_candle(inst_id, channel, item)
+
+    async def _process_candle(self, inst_id: str, channel: str, item: List[Any]):
+        """Process a single candle from WebSocket and upsert to DB.
+        
+        OKX WS candle format: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
+        confirm: '1' = candle closed, '0' = candle still forming
+        """
+        # Reverse map inst_id to canonical symbol
+        canonical = None
+        for k, v in SYMBOL_CONFIG.items():
+            if v.get("okx") == inst_id:
+                canonical = k
+                break
+
+        if not canonical:
+            return
+
+        # Extract timeframe from channel name (e.g. "candle1m" -> "1m", "candle1H" -> "1h")
+        tf_bar = channel.replace("candle", "")
+        tf = None
+        for k, v in TF_OKX.items():
+            if v == tf_bar:
+                tf = k
+                break
+
+        if not tf:
+            return
+
+        try:
+            ts = int(item[0])
+            dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+            confirm = item[8] if len(item) > 8 else "1"
+
+            candle = Candle(
+                canonical_symbol=canonical,
+                timeframe=tf,
+                open_time=dt,
+                open=float(item[1]),
+                high=float(item[2]),
+                low=float(item[3]),
+                close=float(item[4]),
+                volume=float(item[5]),
+                is_closed=(confirm == "1"),
+                source="okx_ws"
+            )
+
+            # Validate before upsert
+            valid, err = validate_candle(candle)
+            if not valid:
+                log.warning(f"[WS] Invalid candle {canonical}/{tf} {dt}: {err}")
+                return
+
+            # Upsert to market_candles
+            supabase.table("market_candles").upsert({
+                "canonical_symbol": candle.canonical_symbol,
+                "timeframe": candle.timeframe,
+                "open_time": candle.open_time.isoformat(),
+                "open": candle.open,
+                "high": candle.high,
+                "low": candle.low,
+                "close": candle.close,
+                "volume": candle.volume,
+                "is_closed": candle.is_closed,
+                "source": candle.source
+            }, on_conflict="canonical_symbol,timeframe,open_time").execute()
+
+            # Update price
+            await upsert_price(candle)
+
+            status = "CLOSED" if candle.is_closed else "open"
+            log.debug(f"[WS] {canonical}/{tf} {status} @ {dt} O={candle.open} C={candle.close}")
+
+        except Exception as e:
+            log.error(f"[WS] Process candle error {canonical}/{tf}: {e}")
+
+    def stop(self):
+        """Stop the WebSocket manager."""
+        self.running = False
+        if self.ws:
+            asyncio.create_task(self.ws.close())
 
 
 async def fetch_all_prices(session: aiohttp.ClientSession):
@@ -517,6 +758,12 @@ async def poll_okx_symbol(
     inst_id = config["okx"]
     bar = TF_OKX[tf]
     interval = POLL_INTERVALS[tf]
+
+    # Skip symbols handled by WebSocket (Phase 4-A)
+    if HAS_WEBSOCKETS and canonical in WS_ENABLED_SYMBOLS:
+        log.info(f"[SKIP] OKX {canonical} {tf}: handled by WebSocket, skipping polling")
+        return
+
     task_start = datetime.now(timezone.utc).isoformat()
     log.info(f"[TASK START] OKX {canonical} {tf} ({inst_id}) at {task_start}")
     error_count = 0
@@ -630,7 +877,19 @@ async def main():
         # Start price fetcher (updates market_prices independently)
         price_task = asyncio.create_task(fetch_all_prices(session))
 
-        # Create live polling tasks immediately
+        # Start WebSocket manager for OKX (Phase 4-A: BTC only)
+        ws_task = None
+        if HAS_WEBSOCKETS and WS_ENABLED_SYMBOLS:
+            ws_symbols = [s for s in WS_ENABLED_SYMBOLS if SYMBOL_CONFIG.get(s, {}).get("okx")]
+            if ws_symbols:
+                ws_manager = OKXWebsocketManager(
+                    symbols=ws_symbols,
+                    timeframes=list(TF_OKX.keys())
+                )
+                ws_task = asyncio.create_task(ws_manager.start(), name="OKX-WebSocket")
+                log.info(f"[WS] Started WebSocket for symbols: {ws_symbols}")
+
+        # Create live polling tasks (WS symbols will be skipped inside poll_okx_symbol)
         tasks = []
         for canonical, config in SYMBOL_CONFIG.items():
             for tf in TF_OANDA.keys():
@@ -647,16 +906,22 @@ async def main():
                         name=f"OKX:{canonical}:{tf}"
                     )
                     tasks.append(task)
-                    log.info(f"[TASK CREATED] OKX {canonical} {tf}")
+                    if canonical in WS_ENABLED_SYMBOLS and HAS_WEBSOCKETS:
+                        log.info(f"[TASK CREATED] OKX {canonical} {tf} (WS active, polling will skip)")
+                    else:
+                        log.info(f"[TASK CREATED] OKX {canonical} {tf}")
 
-        log.info(f"[WORKER CONFIG] Total live tasks: {len(tasks)}")
+        log.info(f"[WORKER CONFIG] Total tasks: {len(tasks)} + WebSocket" + (" (if available)" if HAS_WEBSOCKETS else ""))
         log.info("Feeder running... (Ctrl+C to stop)")
 
         # Wait for backfill to complete (non-blocking for live tasks)
         await backfill_task
 
         # Keep all tasks running
-        await asyncio.gather(*tasks, price_task)
+        all_tasks = tasks + [price_task]
+        if ws_task:
+            all_tasks.append(ws_task)
+        await asyncio.gather(*all_tasks)
 
 
 if __name__ == "__main__":
