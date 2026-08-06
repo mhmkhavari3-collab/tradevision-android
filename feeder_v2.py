@@ -547,6 +547,7 @@ class OKXWebsocketManager:
         OKX WS candle format: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
         confirm: '1' = candle closed, '0' = candle still forming
         """
+        recv_time = datetime.now(timezone.utc)  # When we received from OKX
         # Reverse map inst_id to canonical symbol
         canonical = None
         for k, v in SYMBOL_CONFIG.items():
@@ -567,6 +568,10 @@ class OKXWebsocketManager:
 
         if not tf:
             return
+
+        # LOG: When OKX message received (only for BTC/1m to avoid spam)
+        if canonical == "BTC" and tf == "1m":
+            log.info(f"[OKX_MSG] {recv_time.strftime('%H:%M:%S.%f')[:12]} - {canonical}/{tf} ch={channel}")
 
         try:
             ts = int(item[0])
@@ -610,6 +615,9 @@ class OKXWebsocketManager:
             await upsert_price(candle)
 
             status = "CLOSED" if candle.is_closed else "open"
+            upsert_time = datetime.now(timezone.utc)
+            if canonical == "BTC" and tf == "1m":
+                log.info(f"[WS_UPSERT] {upsert_time.strftime('%H:%M:%S.%f')[:12]} - {canonical}/{tf} {status} upsert_time={((upsert_time - recv_time).total_seconds()*1000):.0f}ms")
             log.debug(f"[WS] {canonical}/{tf} {status} @ {dt} O={candle.open} C={candle.close}")
 
         except Exception as e:
@@ -805,12 +813,14 @@ async def poll_okx_symbol(
 
 async def backfill_historical(session: aiohttp.ClientSession):
     """
-    Round-robin backfill: fetch a few candles from each symbol/TF,
-    then move to the next. Prevents one symbol from blocking others.
+    Smart backfill: check last candle time for each pair,
+    only backfill if there's a gap (>5 min old).
     """
-    log.info("Starting historical backfill (round-robin)...")
+    log.info("Starting smart backfill...")
 
-    # Build all symbol/TF pairs that need backfill
+    now = datetime.now(timezone.utc)
+
+    # Build all symbol/TF pairs
     pairs = []
     for canonical, config in SYMBOL_CONFIG.items():
         for tf in TF_OANDA.keys():
@@ -819,39 +829,63 @@ async def backfill_historical(session: aiohttp.ClientSession):
             if config["okx"]:
                 pairs.append(("okx", canonical, config, tf))
 
-    log.info(f"[BACKFILL] Total pairs to backfill: {len(pairs)}")
+    log.info(f"[BACKFILL] Total pairs to check: {len(pairs)}")
 
-    # Round-robin: process each pair one at a time
+    backfilled = 0
+    skipped = 0
+
     for idx, (provider, canonical, config, tf) in enumerate(pairs):
         try:
+            # Check last candle time
+            result = supabase.table("market_candles") \
+                .select("open_time") \
+                .eq("canonical_symbol", canonical) \
+                .eq("timeframe", tf) \
+                .order("open_time", desc=True) \
+                .limit(1) \
+                .execute()
+
+            last_time = None
+            if result.data:
+                last_time = datetime.fromisoformat(result.data[0]["open_time"].replace("Z", "+00:00"))
+
+            # If last candle is older than 5 minutes, backfill from there
+            if last_time and (now - last_time).total_seconds() < 300:
+                skipped += 1
+                continue
+
+            from_time = last_time if last_time else (now - timedelta(days=30))
+            log.info(f"[BACKFILL] {provider} {canonical} {tf}: gap detected, backfilling from {from_time} to {now}")
+
             if provider == "oanda":
                 instrument = config["oanda"]
                 granularity = TF_OANDA[tf]
-                to_time = datetime.now(timezone.utc)
-                from_time = to_time - timedelta(days=30)
-                raw = await fetch_oanda_candles(session, instrument, granularity, from_time, to_time)
+                raw = await fetch_oanda_candles(session, instrument, granularity, from_time, now)
                 parsed = [parse_oanda_candle(r, canonical, tf) for r in raw]
                 valid = [c for c in parsed if c]
                 if valid:
                     await upsert_candles(valid)
                     log.info(f"[BACKFILL] OANDA {canonical} {tf}: {len(valid)} candles")
+                    backfilled += 1
 
             elif provider == "okx":
                 bar = TF_OKX[tf]
-                to_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-                from_ms = to_ms - (30 * 24 * 60 * 60 * 1000)
+                from_ms = int(from_time.timestamp() * 1000)
+                to_ms = int(now.timestamp() * 1000)
                 raw = await fetch_okx_candles(session, config["okx"], bar, from_ms, to_ms, canonical, tf)
                 parsed = [parse_okx_candle(r, canonical, tf) for r in raw]
                 valid = [c for c in parsed if c]
                 if valid:
                     await upsert_candles(valid)
                     log.info(f"[BACKFILL] OKX {canonical} {tf}: {len(valid)} candles")
+                    backfilled += 1
 
         except Exception as e:
             log.error(f"[BACKFILL] Error {provider} {canonical} {tf}: {e}")
 
-        # Small delay between pairs to avoid rate limiting
         await asyncio.sleep(0.3)
+
+    log.info(f"[BACKFILL] Done: {backfilled} backfilled, {skipped} skipped (already fresh)")
 
     log.info("[BACKFILL] Historical backfill complete")
 
