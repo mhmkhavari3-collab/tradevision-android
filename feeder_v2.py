@@ -103,10 +103,23 @@ def _cache_set(symbol: str, tf: str, data: list):
     """Store data in cache"""
     _okx_cache[(symbol, tf)] = (datetime.now(timezone.utc), data)
 
+LOG_FILE = "/data/workspace/feeder_ws_test.log"
+
+handler = RotatingFileHandler(
+    LOG_FILE,
+    maxBytes=10*1024*1024,  # 10 MB
+    backupCount=3           # keep 3 old files
+)
+handler.setFormatter(logging.Formatter(
+    "%(asctime)s | %(levelname)s | %(message)s",
+    datefmt="%H:%M:%S"
+))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
-    datefmt="%H:%M:%S"
+    datefmt="%H:%M:%S",
+    handlers=[handler, logging.StreamHandler()]
 )
 log = logging.getLogger("feeder")
 
