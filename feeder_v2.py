@@ -429,7 +429,8 @@ class OKXWebsocketManager:
     """Manages OKX WebSocket connection for real-time candle data.
     
     Features:
-    - Auto-reconnect on disconnect
+    - Auto-reconnect with exponential backoff
+    - Proper cleanup of old connections
     - Periodic ping to prevent 30s timeout
     - Smart upsert: update open candles, insert closed ones
     - validate_candle() before every upsert
@@ -443,46 +444,72 @@ class OKXWebsocketManager:
         self.running = False
         self._last_message_time = 0.0
         self._ping_task = None
+        self._reconnect_count = 0
+        self._max_backoff = 60  # Max 60s backoff
 
     async def start(self):
-        """Main entry: reconnect loop."""
+        """Main entry: reconnect loop with exponential backoff."""
         self.running = True
         while self.running:
             try:
-                log.info(f"[WS] Connecting to OKX: {self.url}")
-                async with websockets.connect(
+                self._reconnect_count += 1
+                log.info(f"[WS_RECONNECT_START] #{self._reconnect_count} Connecting to OKX: {self.url}")
+                
+                # Create fresh connection
+                ws = await websockets.connect(
                     self.url,
                     ping_interval=None,  # We handle ping manually
                     close_timeout=5,
-                    open_timeout=10,
-                ) as ws:
-                    self.ws = ws
-                    self._last_message_time = asyncio.get_event_loop().time()
-                    log.info("[WS] Connected successfully")
+                    open_timeout=15,  # Increased from 10s
+                )
+                self.ws = ws
+                self._last_message_time = asyncio.get_event_loop().time()
+                log.info("[WS_CONNECT_OK] Connected successfully")
 
-                    # Subscribe to channels
-                    await self._subscribe()
+                # Reset backoff on successful connection
+                self._reconnect_count = 0
 
-                    # Start ping task
-                    self._ping_task = asyncio.create_task(self._ping_loop())
+                # Subscribe to channels
+                await self._subscribe()
 
-                    # Listen for messages
-                    await self._listen()
+                # Start ping task (ensure old one is cleaned up)
+                self._cleanup_ping_task()
+                self._ping_task = asyncio.create_task(self._ping_loop())
+
+                # Listen for messages
+                await self._listen()
 
             except websockets.exceptions.ConnectionClosed as e:
-                log.warning(f"[WS] Connection closed: {e}. Reconnecting in 5s...")
+                log.warning(f"[WS_CLOSE] Connection closed: {e}")
+            except websockets.exceptions.InvalidStatusCode as e:
+                log.error(f"[WS_CLOSE] Invalid status: {e}")
             except Exception as e:
-                log.error(f"[WS] Connection error: {e}. Reconnecting in 5s...")
+                log.error(f"[WS_CLOSE] Error: {type(e).__name__}: {e}")
             finally:
-                if self._ping_task and not self._ping_task.done():
-                    self._ping_task.cancel()
-                    try:
-                        await self._ping_task
-                    except asyncio.CancelledError:
-                        pass
+                # Always cleanup
+                self._cleanup_ping_task()
+                await self._close_ws()
                 self.ws = None
 
-            await asyncio.sleep(5)
+            # Exponential backoff
+            backoff = min(5 * (2 ** min(self._reconnect_count, 4)), self._max_backoff)
+            log.info(f"[WS_RECONNECT] Reconnecting in {backoff}s...")
+            await asyncio.sleep(backoff)
+
+    def _cleanup_ping_task(self):
+        """Safely cancel and cleanup ping task."""
+        if self._ping_task and not self._ping_task.done():
+            self._ping_task.cancel()
+            self._ping_task = None
+
+    async def _close_ws(self):
+        """Safely close websocket connection."""
+        if self.ws:
+            try:
+                await self.ws.close()
+            except Exception:
+                pass
+            self.ws = None
 
     async def _subscribe(self):
         """Subscribe to candle channels for enabled symbols/timeframes."""
@@ -502,7 +529,7 @@ class OKXWebsocketManager:
 
         payload = {"op": "subscribe", "args": args}
         await self.ws.send(json.dumps(payload))
-        log.info(f"[WS] Subscribed to {len(args)} channels: {[a['channel'] + ':' + a['instId'] for a in args]}")
+        log.info(f"[WS_SUBSCRIBE] {len(args)} channels: {[a['channel'] + ':' + a['instId'] for a in args]}")
 
     async def _ping_loop(self):
         """Send 'ping' every WS_PING_INTERVAL seconds to keep alive.
@@ -948,7 +975,7 @@ async def main():
         oanda_instruments = [c["oanda"] for c in SYMBOL_CONFIG.values() if c.get("oanda")]
         if oanda_instruments and OANDA_TOKEN:
             # Initialize candle updater with references from main module
-            candle_updater.init_candle_updater(SYMBOL_CONFIG, TF_OANDA, supabase, Candle)
+            candle_updater.init_candle_updater(SYMBOL_CONFIG, TF_OANDA, supabase)
             
             # Start OANDA Stream (1 connection for all instruments)
             oanda_stream = OandaStreamManager(
