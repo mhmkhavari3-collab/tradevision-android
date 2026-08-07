@@ -507,6 +507,7 @@ function applyPrecision(){if(candleSeries&&cur)candleSeries.applyOptions({priceF
 // OANDA/OKX direct access removed - all data from Supabase only
 
 async function loadCandles(sym,tf){
+  console.log(`[loadCandles] START: sym=${sym} tf=${tf}`);
   const mySeq=++initialLoadSeqId; // FIX 7: Use initialLoadSeqId
   candleMap.clear(); // FIX 1: Clear map on new load
   candles=[];
@@ -805,7 +806,7 @@ function init(){
   console.log = function(){
     origLog.apply(console, arguments);
     const text = Array.from(arguments).join(' ');
-    if(text.includes('[RTC-DBG]') || text.includes('[RT]')){
+    if(text.includes('[RTC-DBG]') || text.includes('[RT]') || text.includes('[loadCandles]')){
       const line = document.createElement('div');
       line.textContent = new Date().toLocaleTimeString() + ' ' + text;
       line.style.whiteSpace = 'pre-wrap';
