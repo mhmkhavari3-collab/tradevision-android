@@ -254,6 +254,7 @@ function showPg(n){
   document.querySelectorAll('.nav-btn').forEach((b,i)=>b.className=['WL','CH','AL','ST'].indexOf(n)===i?'nav-btn active':'nav-btn');
   if(n==='CH'){
     document.getElementById('hdrSym').textContent=cur.display;
+    document.getElementById('chSym').textContent=cur.display;  // FIX: also update chart label
     initChart(); 
     console.log(`[RTC-DBG] showPg(CH): Loading candles for ${cur.sym}/${CURRENT_TF}`);
     loadCandles(cur.sym, CURRENT_TF).then((ok) => {
@@ -303,6 +304,7 @@ function goChart(sym){
   // Update current symbol
   cur = s;
   document.getElementById('hdrSym').textContent = s.display;
+  document.getElementById('chSym').textContent = s.display;  // FIX: also update chart label
   applyPrecision();
 
   showPg('CH');
@@ -578,7 +580,9 @@ function updateLiveCandle(price){
 function updateChartCandle(candleData){
   // Handle market_candles Realtime UPDATE event
   // candleData: {canonical_symbol, timeframe, open_time, open, high, low, close, volume, is_closed}
-  if(!candleSeries||!candles.length||!candleData) return;
+  if(!candleSeries){ console.log('[RTC-DBG] SKIP: no candleSeries'); return; }
+  if(!candles.length){ console.log('[RTC-DBG] SKIP: candles.length=0 (history not loaded yet)'); return; }
+  if(!candleData){ console.log('[RTC-DBG] SKIP: no candleData'); return; }
 
   const candleTime = Math.floor(new Date(candleData.open_time).getTime()/1000);
   const chartCandle = {
