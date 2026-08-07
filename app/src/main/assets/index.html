@@ -445,6 +445,7 @@ function stopChartPoll(){
 }
 
 function destroyChart(){
+  console.log('[CHART-DBG] destroyChart() called, candleSeries was ' + (candleSeries ? 'SET' : 'NULL'));
   if(chart){
     try{
       chart.remove();
@@ -569,8 +570,10 @@ async function loadCandles(sym,tf){
 }
 
 function setChartData(){
-  if(!candleSeries||!candles.length) return;
+  console.log('[CHART-DBG] setChartData() called, candleSeries=' + !!candleSeries + ' candles.length=' + candles.length);
+  if(!candleSeries||!candles.length) { console.log('[CHART-DBG] setChartData() ABORTED: candleSeries or candles empty'); return; }
   candleSeries.setData(candles); // ONLY ONCE for history
+  console.log('[CHART-DBG] candleSeries.setData() EXECUTED, first candle: ' + JSON.stringify(candles[0]) + ' last: ' + JSON.stringify(candles[candles.length-1]));
   rebuildCandleMap();
   chart.timeScale().fitContent();
   updateChHeader(); updateOHLC();
@@ -806,7 +809,7 @@ function init(){
   console.log = function(){
     origLog.apply(console, arguments);
     const text = Array.from(arguments).join(' ');
-    if(text.includes('[RTC-DBG]') || text.includes('[RT]') || text.includes('[loadCandles]')){
+    if(text.includes('[RTC-DBG]') || text.includes('[RT]') || text.includes('[loadCandles]') || text.includes('[CHART-DBG]')){
       const line = document.createElement('div');
       line.textContent = new Date().toLocaleTimeString() + ' ' + text;
       line.style.whiteSpace = 'pre-wrap';
