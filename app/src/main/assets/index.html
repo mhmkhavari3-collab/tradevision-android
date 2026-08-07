@@ -110,6 +110,11 @@ button{background:none;border:none;color:inherit;font:inherit;cursor:pointer}
         <button class="err-btn" onclick="retryChart()">Retry</button>
       </div>
     </div>
+    <!-- DEBUG PANEL: visible on chart page -->
+    <div id="debugPanel" style="position:fixed;bottom:50px;left:8px;right:8px;max-height:120px;overflow-y:auto;background:rgba(0,0,0,0.85);color:#0f0;font-family:monospace;font-size:10px;padding:6px;border-radius:6px;z-index:9999;display:none;border:1px solid #0f0;">
+      <div style="color:#fff;font-weight:700;margin-bottom:4px">[RTC-DBG LOG]</div>
+      <div id="debugLog"></div>
+    </div>
   </div>
 
   <div id="pgAL" class="page"><div class="placeholder">🔔 Alerts<br>Coming soon</div></div>
@@ -782,6 +787,35 @@ function init(){
     }
   });
 }
+/* ============ DEBUG PANEL ============ */
+(function(){
+  const MAX_LINES = 30;
+  const dbgDiv = document.getElementById('debugLog');
+  const dbgPanel = document.getElementById('debugPanel');
+  const origLog = console.log;
+  console.log = function(){
+    origLog.apply(console, arguments);
+    const text = Array.from(arguments).join(' ');
+    if(text.includes('[RTC-DBG]') || text.includes('[RT]')){
+      const line = document.createElement('div');
+      line.textContent = new Date().toLocaleTimeString() + ' ' + text;
+      line.style.whiteSpace = 'pre-wrap';
+      line.style.borderBottom = '1px solid #333';
+      line.style.padding = '2px 0';
+      dbgDiv.appendChild(line);
+      while(dbgDiv.children.length > MAX_LINES) dbgDiv.removeChild(dbgDiv.firstChild);
+      dbgDiv.scrollTop = dbgDiv.scrollHeight;
+      dbgPanel.style.display = 'block';
+    }
+  };
+  // Toggle debug panel on double-tap
+  let tapCount = 0;
+  document.addEventListener('dblclick', function(){
+    if(dbgPanel.style.display === 'none') dbgPanel.style.display = 'block';
+    else dbgPanel.style.display = 'none';
+  });
+})();
+
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 </script>
 </body>
