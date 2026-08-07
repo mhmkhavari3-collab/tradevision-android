@@ -250,12 +250,14 @@ function showPg(n){
   if(n==='CH'){
     document.getElementById('hdrSym').textContent=cur.display;
     initChart(); 
-    loadCandles(cur.sym, CURRENT_TF).then(() => {
+    console.log(`[RTC-DBG] showPg(CH): Loading candles for ${cur.sym}/${CURRENT_TF}`);
+    loadCandles(cur.sym, CURRENT_TF).then((ok) => {
+      console.log(`[RTC-DBG] loadCandles result: ${ok}, calling connectWS(${cur.sym})`);
       // Apply precision for current symbol
       applyPrecision();
       // Start live stream ONLY after history loaded
       connectWS(cur.sym);
-    });
+    }).catch(e => console.error(`[RTC-DBG] loadCandles FAILED:`, e));
     startPricePoll();
   }else{
     disconnectWS(); stopPricePoll(); stopChartPoll();
@@ -385,6 +387,7 @@ function connectCandlesChannel(sym, tf){
   disconnectCandleChannel();
   ensureClient();
   const chName = `candles_${sym}_${tf}`;
+  console.log(`[RTC-DBG] Creating channel: ${chName}, filter: canonical_symbol=eq.${sym},timeframe=eq.${tf}`);
   candleChannel = supabaseClient.channel(chName);
   candleChannel.on('postgres_changes', {
     event: '*',
@@ -393,12 +396,16 @@ function connectCandlesChannel(sym, tf){
     filter: `canonical_symbol=eq.${sym},timeframe=eq.${tf}`
   }, (payload) => {
     const p = payload.new;
+    console.log(`[RTC-DBG] EVENT RECEIVED! type=${payload.eventType} sym=${p?.canonical_symbol} tf=${p?.timeframe} C=${p?.close}`);
     if(p && page==='CH' && cur){
       console.log(`[RT] candle: ${p.canonical_symbol}/${p.timeframe} O=${p.open} H=${p.high} L=${p.low} C=${p.close}`);
       updateChartCandle(p);
+    } else {
+      console.log(`[RTC-DBG] SKIPPED: page=${page} cur=${!!cur}`);
     }
   });
   candleChannel.subscribe((status) => {
+    console.log(`[RTC-DBG] SUBSCRIBE STATUS: ${status} for ${sym}/${tf}`);
     console.log(`[RT] candles ${sym}/${tf}:`, status);
     setWSStatus(status === 'SUBSCRIBED');
   });
