@@ -744,6 +744,7 @@ function setTF(tf){
   candles = [];
   candleMap.clear();
 
+  initChart();  // FIX: recreate chart before loading candles
   loadCandles(cur.sym, tf).then(() => {
     if(page==='CH') connectWS(cur.sym);
     const chAfter = supabaseClient ? supabaseClient.getChannels().length : 0;
