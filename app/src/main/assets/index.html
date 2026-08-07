@@ -539,7 +539,7 @@ async function loadCandles(sym,tf){
     }
     // Reverse: Supabase returns newest first (desc), chart needs oldest first (asc)
     const reversed = data.reverse();
-    console.log(`[loadCandles] OK: ${canonSym}/${tf} rows=${reversed.length} oldest=${reversed[0]?.open_time} newest=${reversed[reversed.length-1]?.open_time}`);
+    console.log(`[loadCandles] OK: ${canonSym}/${tf} rows=${reversed.length} oldest=${reversed[0]?.open_time} newest=${reversed[reversed.length-1]?.open_time} mySeq=${mySeq} globalSeq=${initialLoadSeqId}`);
     // Convert Supabase format to chart format
     candles = reversed.map(c => ({
       time: Math.floor(new Date(c.open_time).getTime()/1000),
@@ -551,7 +551,11 @@ async function loadCandles(sym,tf){
     })).filter((c,i,a)=>i===0 || a[i-1].time !== c.time);
     
     document.getElementById('loadInd').className='load-ind';
-    if(mySeq!==initialLoadSeqId) return; // FIX 7: Check initialLoadSeqId
+    if(mySeq!==initialLoadSeqId) {
+      console.log(`[loadCandles] STALE DATA REJECTED: mySeq=${mySeq} != globalSeq=${initialLoadSeqId}`);
+      return;
+    }
+    console.log(`[loadCandles] APPLYING DATA: mySeq=${mySeq} == globalSeq=${initialLoadSeqId}, calling setChartData()`);
     setChartData();
     applyPrecision();
     return true;
