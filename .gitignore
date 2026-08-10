@@ -1,12 +1,20 @@
-*.iml
-.gradle
-/local.properties
-/.idea
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# Gradle
+.gradle/
+build/
 local.properties
-app/build/
-__pycache__/
+*.apk
+*.aab
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Android
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Local secrets (never commit)
+app/src/main/assets/secrets.properties
+secrets.properties

@@ -1,9 +1,4 @@
--keep class com.tradevision.** { *; }
--keepclassmembers class * {
-    @android.webkit.JavascriptInterface <methods>;
-}
--dontwarn kotlin.**
--dontwarn kotlinx.**
+# Add project specific ProGuard rules here.
+-keepattributes Signature
 -dontwarn okhttp3.**
--dontwarn retrofit2.**
--keep class com.google.gson.** { *; }
+-dontwarn okio.**
