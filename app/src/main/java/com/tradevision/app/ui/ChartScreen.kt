@@ -34,13 +34,23 @@ import com.tradevision.app.data.Timeframe
 import com.tradevision.app.ui.chart.CandleChart
 
 @Composable
-fun ChartScreen(viewModel: ChartViewModel) {
+fun ChartScreen(viewModel: ChartViewModel, onOpenSettings: () -> Unit = {}) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val symbol by viewModel.symbol.collectAsStateWithLifecycle()
     val timeframe by viewModel.timeframe.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize().background(Color(0xFF0E1116)).padding(8.dp)) {
         // Symbol row
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("TradeVision", color = Color.White, style = MaterialTheme.typography.titleMedium)
+            androidx.compose.material3.TextButton(onClick = onOpenSettings) {
+                Text("⚙ Settings", color = Color(0xFF26A69A))
+            }
+        }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             items(Instrument.entries.toList()) { ins ->
                 FilterChip(
