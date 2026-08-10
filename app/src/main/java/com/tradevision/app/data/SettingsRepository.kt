@@ -6,8 +6,11 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.tradevision.app.data.AppSettings
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.runBlocking
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
 
@@ -25,6 +28,9 @@ class SettingsRepository(private val context: Context) {
             apiKey = prefs[Keys.API_KEY] ?: "",
         )
     }
+
+    /** First emission, blocking (used at startup for initial ViewModel). */
+    fun blockingSettings(): AppSettings = runBlocking { settings.first() }
 
     suspend fun save(baseUrl: String, apiKey: String) {
         context.dataStore.edit { prefs ->
