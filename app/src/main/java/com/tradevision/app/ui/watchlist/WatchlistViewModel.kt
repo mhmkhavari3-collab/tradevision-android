@@ -164,7 +164,7 @@ class WatchlistViewModel(
             changePercent = if (dayOpen != 0.0) (candle.close - dayOpen) / dayOpen * 100.0 else 0.0,
             high = maxOf(candle.high, current[candle.symbol]?.high ?: 0.0),
             low = minOf(candle.low, current[candle.symbol]?.low ?: Double.MAX_VALUE),
-            volume = (current[candle.symbol]?.volume ?: 0L) + candle.volume,
+            volume = (current[candle.symbol]?.volume ?: 0.0) + candle.volume,
             updatedAt = System.currentTimeMillis(),
         ) ?: MarketQuote(
             symbol = candle.symbol,
