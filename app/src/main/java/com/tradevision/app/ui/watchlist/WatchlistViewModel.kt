@@ -177,7 +177,7 @@ class WatchlistViewModel(
             volume = candle.volume,
             updatedAt = System.currentTimeMillis(),
         )
-        _quotes.value = current + (candle.symbol to newQuote)
+        _quotes.value = current.toMutableMap().apply { put(candle.symbol, newQuote) }
     }
 
     /** Stop all live connections. */
