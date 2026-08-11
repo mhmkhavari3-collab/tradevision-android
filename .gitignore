@@ -17,4 +17,4 @@ captures/
 
 # Local secrets (never commit)
 app/src/main/assets/secrets.properties
-secrets.properties
+secrets.properties.kotlin/
