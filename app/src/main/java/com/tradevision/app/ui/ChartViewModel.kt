@@ -150,7 +150,7 @@ class ChartViewModel(
         }
         val maxVol = vols.maxOrNull() ?: 0.0
         if (maxVol <= 0.0) return
-        val pocIdx = vols.indexOf(maxVol)
+        val pocIdx = vols.indexOfFirst { it == maxVol }
         val pocPrice = lo + binW * (pocIdx + 0.5)
 
         // value area = prices around POC containing 70% of volume
