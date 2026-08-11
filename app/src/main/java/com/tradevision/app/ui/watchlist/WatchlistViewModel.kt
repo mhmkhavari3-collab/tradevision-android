@@ -10,14 +10,12 @@ import com.tradevision.app.data.SettingsRepository
 import com.tradevision.app.network.HistoryClient
 import com.tradevision.app.network.LiveCandleClient
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 
@@ -53,6 +51,8 @@ class WatchlistViewModel(
             repo.settings.collect { s ->
                 applySettings(s)
             }
+        }
+    }
         }
     }
 

@@ -76,7 +76,7 @@ fun CandleChart(
 
     // Follow latest when live-follow is on — in LaunchedEffect to avoid composition conflicts
     val lastIndex = (candles.size - 1).coerceAtLeast(0)
-    LaunchedEffect(liveFollowing, candles.size, visibleCount, startIndex) {
+    LaunchedEffect(liveFollowing, candles.size, visibleCount) {
         if (liveFollowing && candles.isNotEmpty() && (startIndex + visibleCount) < candles.size) {
             // Use snapshot to avoid recomposition loop
             startIndex = (candles.size - visibleCount).coerceAtLeast(0)
