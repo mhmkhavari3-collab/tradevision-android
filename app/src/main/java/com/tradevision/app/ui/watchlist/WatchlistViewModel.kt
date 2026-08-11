@@ -6,6 +6,7 @@ import com.tradevision.app.data.AppSettings
 import com.tradevision.app.data.Candle
 import com.tradevision.app.data.Instrument
 import com.tradevision.app.data.MarketQuote
+import com.tradevision.app.data.SettingsRepository
 import com.tradevision.app.network.HistoryClient
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -19,15 +20,13 @@ enum class WatchSort { SYMBOL, PRICE, CHANGE_PCT, GAINERS, LOSERS }
 /**
  * Watchlist VM: polls /history (1m, limit 1) per symbol to derive live quotes.
  * Daily change uses the first candle of the current day as dayOpen — real data, never fabricated.
+ *
+ * Settings are observed reactively via [SettingsRepository.settings]; when the base URL or
+ * API key changes, the polling restarts with the new values (no stale snapshot).
  */
 class WatchlistViewModel(
-    private val settings: AppSettings,
+    private val repo: SettingsRepository,
 ) : ViewModel() {
-
-    private val historyClient = HistoryClient(
-        baseUrlProvider = { settings.baseUrl },
-        apiKeyProvider = { settings.apiKey },
-    )
 
     private val _quotes = MutableStateFlow<Map<String, MarketQuote>>(emptyMap())
     val quotes: StateFlow<Map<String, MarketQuote>> = _quotes
@@ -38,11 +37,31 @@ class WatchlistViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    private var pollJob: Job? = null
+    @Volatile private var pollJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            repo.settings.collect { s ->
+                applySettings(s)
+            }
+        }
+    }
+
+    /** (Re)creates the polling client when baseUrl/apiKey actually change. */
+    private fun applySettings(s: AppSettings) {
+        if (_baseUrl == s.baseUrl && _apiKey == s.apiKey) return
+        _baseUrl = s.baseUrl
+        _apiKey = s.apiKey
+        historyClient = HistoryClient(
+            baseUrlProvider = { _baseUrl },
+            apiKeyProvider = { _apiKey },
+        )
         startPolling()
     }
+
+    @Volatile private var _baseUrl: String = ""
+    @Volatile private var _apiKey: String = ""
+    @Volatile private var historyClient: HistoryClient = HistoryClient({ "" }, { "" })
 
     fun startPolling() {
         pollJob?.cancel()

@@ -9,6 +9,7 @@ import com.tradevision.app.data.Drawing
 import com.tradevision.app.data.DrawingTool
 import com.tradevision.app.data.IndicatorConfig
 import com.tradevision.app.data.Instrument
+import com.tradevision.app.data.SettingsRepository
 import com.tradevision.app.data.Timeframe
 import com.tradevision.app.data.VolumeProfileResult
 import com.tradevision.app.network.HistoryClient
@@ -25,24 +26,24 @@ sealed interface ChartUiState {
 }
 
 class ChartViewModel(
-    private val settings: AppSettings,
+    private val repo: SettingsRepository,
 ) : ViewModel() {
 
-    private val historyClient = HistoryClient(
-        baseUrlProvider = { settings.baseUrl },
-        apiKeyProvider = { settings.apiKey },
-    )
+    @Volatile private var historyClient: HistoryClient = HistoryClient({ "" }, { "" })
 
     private val _wsStatus = MutableStateFlow(LiveCandleClient.WsStatus.CONNECTING)
     val wsStatus: StateFlow<LiveCandleClient.WsStatus> = _wsStatus
 
     private val liveClient = LiveCandleClient(
-        baseUrlProvider = { settings.baseUrl },
-        apiKeyProvider = { settings.apiKey },
+        baseUrlProvider = { currentBaseUrl },
+        apiKeyProvider = { currentApiKey },
         scope = viewModelScope,
         onCandle = { updateLiveCandle(it) },
         onStatus = { _wsStatus.value = it },
     )
+
+    @Volatile private var currentBaseUrl: String = ""
+    @Volatile private var currentApiKey: String = ""
 
     private val _uiState = MutableStateFlow<ChartUiState>(ChartUiState.Idle)
     val uiState: StateFlow<ChartUiState> = _uiState
@@ -72,6 +73,25 @@ class ChartViewModel(
     private val drawingStore = mutableMapOf<String, MutableList<Drawing>>()
 
     init {
+        viewModelScope.launch {
+            repo.settings.collect { s ->
+                applySettings(s)
+            }
+        }
+    }
+
+    /** Reacts to real settings changes (base URL / API key) — refreshes history + WS. */
+    private fun applySettings(s: AppSettings) {
+        if (currentBaseUrl == s.baseUrl && currentApiKey == s.apiKey) return
+        currentBaseUrl = s.baseUrl
+        currentApiKey = s.apiKey
+        historyClient = HistoryClient(
+            baseUrlProvider = { currentBaseUrl },
+            apiKeyProvider = { currentApiKey },
+        )
+        // liveClient reads currentBaseUrl/currentApiKey lazily at connect time;
+        // disconnect any previous socket before the new connect (no duplicates).
+        liveClient.disconnect()
         load()
     }
 

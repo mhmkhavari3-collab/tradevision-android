@@ -32,7 +32,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.tradevision.app.data.AppSettings
 import com.tradevision.app.data.SettingsRepository
 import com.tradevision.app.ui.ChartScreen
 import com.tradevision.app.ui.ChartViewModel
@@ -42,13 +41,14 @@ import com.tradevision.app.ui.settings.SettingsScreen
 import com.tradevision.app.ui.theme.TradeVisionTheme
 import com.tradevision.app.ui.theme.TvAccent
 import com.tradevision.app.ui.theme.TvBg
-import com.tradevision.app.ui.theme.TvBorder
 import com.tradevision.app.ui.theme.TvText
 import com.tradevision.app.ui.theme.TvTextDim
 import com.tradevision.app.ui.watchlist.WatchlistScreen
 import com.tradevision.app.ui.watchlist.WatchlistViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 enum class Tab(val label: String, val icon: String) {
@@ -59,39 +59,47 @@ enum class Tab(val label: String, val icon: String) {
 }
 
 class MainActivity : ComponentActivity() {
+
+    /** App-wide scope for the settings StateFlow (survives recomposition, cancelled on destroy). */
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private lateinit var settingsRepo: SettingsRepository
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val settingsRepo = SettingsRepository(this)
-        val savedSettings = settingsRepo.blockingSettings()
+        settingsRepo = SettingsRepository(this, appScope)
 
         setContent {
             TradeVisionTheme {
-                MainScaffold(savedSettings, settingsRepo)
+                MainScaffold(settingsRepo)
             }
         }
+    }
+
+    override fun onDestroy() {
+        appScope.cancel()
+        super.onDestroy()
     }
 }
 
 @Composable
 private fun MainScaffold(
-    savedSettings: AppSettings,
     settingsRepo: SettingsRepository,
 ) {
     var currentTab by remember { mutableIntStateOf(Tab.WATCHLIST.ordinal) }
     var selectedSymbol by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
-    var settings by remember { mutableStateOf(savedSettings) }
+    val initialSettings = remember { settingsRepo.blockingSettings() }
 
-    // VMs (recreated when settings change)
-    val watchlistVm: WatchlistViewModel = viewModel(factory = ChartViewModelFactory(settings))
-    val chartVm: ChartViewModel = viewModel(factory = ChartViewModelFactory(settings))
-    val alertsVm: AlertsViewModel = viewModel(factory = ChartViewModelFactory(settings))
+    // VMs observe SettingsRepository.settings reactively — created ONCE, never recreated
+    // on recomposition, and never hold a stale snapshot of AppSettings.
+    val watchlistVm: WatchlistViewModel = viewModel(factory = ChartViewModelFactory(settingsRepo))
+    val chartVm: ChartViewModel = viewModel(factory = ChartViewModelFactory(settingsRepo))
+    val alertsVm: AlertsViewModel = viewModel(factory = ChartViewModelFactory(settingsRepo))
 
     fun saveSettings(url: String, key: String) {
         CoroutineScope(Dispatchers.IO).launch { settingsRepo.save(url, key) }
-        settings = AppSettings(url, key)
         showSettings = false
     }
 
@@ -100,8 +108,8 @@ private fun MainScaffold(
         Box(Modifier.weight(1f)) {
             when {
                 showSettings -> SettingsScreen(
-                    initialBaseUrl = settings.baseUrl,
-                    initialApiKey = settings.apiKey,
+                    initialBaseUrl = initialSettings.baseUrl,
+                    initialApiKey = initialSettings.apiKey,
                     wsStatus = chartVm.wsStatus.value,
                     onSave = ::saveSettings,
                     onBack = { showSettings = false },
@@ -131,8 +139,8 @@ private fun MainScaffold(
                 }
                 currentTab == Tab.ALERTS.ordinal -> AlertsScreen(alertsVm)
                 currentTab == Tab.SETTINGS.ordinal -> SettingsScreen(
-                    initialBaseUrl = settings.baseUrl,
-                    initialApiKey = settings.apiKey,
+                    initialBaseUrl = initialSettings.baseUrl,
+                    initialApiKey = initialSettings.apiKey,
                     wsStatus = chartVm.wsStatus.value,
                     onSave = ::saveSettings,
                     onBack = { currentTab = Tab.WATCHLIST.ordinal },
@@ -174,13 +182,13 @@ private fun MainScaffold(
 }
 
 class ChartViewModelFactory(
-    private val settings: AppSettings,
+    private val repo: SettingsRepository,
 ) : androidx.lifecycle.ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
         return when {
-            modelClass.isAssignableFrom(ChartViewModel::class.java) -> ChartViewModel(settings) as T
-            modelClass.isAssignableFrom(WatchlistViewModel::class.java) -> WatchlistViewModel(settings) as T
+            modelClass.isAssignableFrom(ChartViewModel::class.java) -> ChartViewModel(repo) as T
+            modelClass.isAssignableFrom(WatchlistViewModel::class.java) -> WatchlistViewModel(repo) as T
             modelClass.isAssignableFrom(AlertsViewModel::class.java) -> AlertsViewModel() as T
             else -> throw IllegalArgumentException("Unknown VM: ${modelClass.name}")
         }
