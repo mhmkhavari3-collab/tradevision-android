@@ -37,6 +37,7 @@ class LiveCandleClient(
     private var connectJob: Job? = null
     private var subscribedSymbol: String? = null
     private var subscribedTf: String? = null
+    @Volatile private var attempt = 0
 
     fun connect(symbol: String, tf: String) {
         disconnect()
@@ -47,10 +48,9 @@ class LiveCandleClient(
     }
 
     private suspend fun connectWithBackoff(symbol: String, tf: String) {
-        var attempt = 0
+        attempt = 0
         while (scope.isActive) {
-            val ok = tryConnect(symbol, tf)
-            if (!ok) return  // closed intentionally
+            tryConnect(symbol, tf)
             attempt++
             val delayMs = (1000L * 2f.pow(attempt.coerceAtMost(5))).toLong()
             onStatus(WsStatus.RECONNECTING)
