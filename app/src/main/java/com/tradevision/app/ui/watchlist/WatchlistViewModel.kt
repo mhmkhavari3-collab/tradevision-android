@@ -87,7 +87,7 @@ class WatchlistViewModel(
 
     private suspend fun asyncQuote(ins: Instrument): MarketQuote? {
         return try {
-            val resp = historyClient.history(ins.symbol, "1m", limit = 1000)
+            val resp = historyClient.history(ins.symbol, "1m", limit = 50)
             val candles = resp.candles
             if (candles.isEmpty()) return null
             val last = candles.last()

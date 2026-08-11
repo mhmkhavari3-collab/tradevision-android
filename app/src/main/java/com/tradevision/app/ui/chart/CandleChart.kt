@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
@@ -79,58 +80,77 @@ fun CandleChart(
         startIndex = (candles.size - visibleCount).coerceAtLeast(0)
     }
 
+    // Stable state references for gesture handlers — pointerInput must NOT restart on
+    // every WS tick (candles change) or mid-gesture pan/zoom gets cancelled.
+    val candlesState = rememberUpdatedState(candles)
+    val visibleCountState = rememberUpdatedState(visibleCount)
+    val startIndexState = rememberUpdatedState(startIndex)
+    val selectedToolState = rememberUpdatedState(selectedTool)
+
     Box(modifier) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(candles, visibleCount, startIndex, selectedTool) {
+                .pointerInput(Unit) {
                     detectTransformGestures { centroid, pan, zoom, _ ->
+                        val cds = candlesState.value
+                        val vc = visibleCountState.value
+                        val si = startIndexState.value
+                        val tool = selectedToolState.value
+                        if (cds.isEmpty()) return@detectTransformGestures
                         // pinch zoom around centroid
                         if (abs(zoom - 1f) > 0.01f) {
-                            val newCount = (visibleCount / zoom).toInt().coerceIn(5, candles.size.coerceAtLeast(5))
+                            val newCount = (vc / zoom).toInt().coerceIn(5, cds.size.coerceAtLeast(5))
                             // keep candle under centroid fixed
                             val frac = (centroid.x / size.width).coerceIn(0f, 1f)
-                            val anchor = startIndex + (visibleCount * frac).toInt()
-                            val anchorFrac = (anchor - startIndex).toFloat() / visibleCount
-                            startIndex = (anchor - (newCount * anchorFrac).toInt()).coerceIn(0, (candles.size - newCount).coerceAtLeast(0))
+                            val anchor = si + (vc * frac).toInt()
+                            val anchorFrac = (anchor - si).toFloat() / vc
+                            startIndex = (anchor - (newCount * anchorFrac).toInt()).coerceIn(0, (cds.size - newCount).coerceAtLeast(0))
                             visibleCount = newCount
                         }
-                        if (abs(pan.x) > 0.5f && selectedTool == null) {
+                        if (abs(pan.x) > 0.5f && tool == null) {
                             val c = 0.8f
-                            val shift = (-pan.x * c / (size.width / visibleCount.coerceAtLeast(1))).toInt()
+                            val shift = (-pan.x * c / (size.width / vc.coerceAtLeast(1))).toInt()
                             if (shift != 0) {
-                                startIndex = (startIndex + shift).coerceIn(0, (candles.size - visibleCount).coerceAtLeast(0))
+                                startIndex = (si + shift).coerceIn(0, (cds.size - vc).coerceAtLeast(0))
                             }
                         }
-                        if (liveFollowing && (startIndex + visibleCount) < candles.size) {
+                        if (liveFollowing && (startIndex + visibleCount) < candlesState.value.size) {
                             onLiveFollowChange(false)
                         }
                         crosshairIndex = -1
                     }
                 }
-                .pointerInput(candles, visibleCount, startIndex, selectedTool) {
+                .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = {
-                            val newCount = (visibleCount / 1.8f).toInt().coerceIn(5, candles.size.coerceAtLeast(5))
-                            startIndex = ((startIndex + visibleCount / 2) - newCount / 2).coerceIn(0, (candles.size - newCount).coerceAtLeast(0))
+                            val cds = candlesState.value
+                            val vc = visibleCountState.value
+                            val si = startIndexState.value
+                            val newCount = (vc / 1.8f).toInt().coerceIn(5, cds.size.coerceAtLeast(5))
+                            startIndex = ((si + vc / 2) - newCount / 2).coerceIn(0, (cds.size - newCount).coerceAtLeast(0))
                             visibleCount = newCount
                         },
                         onTap = {
-                            if (selectedTool != null) {
+                            val cds = candlesState.value
+                            val vc = visibleCountState.value
+                            val si = startIndexState.value
+                            val tool = selectedToolState.value
+                            if (tool != null) {
                                 // place a drawing point
-                                val slot = size.width / visibleCount.coerceAtLeast(1)
-                                val idx = startIndex + (it.x / slot).toInt()
-                                val price = priceAt(it.y, candles, startIndex, visibleCount)
+                                val slot = size.width / vc.coerceAtLeast(1)
+                                val idx = si + (it.x / slot).toInt()
+                                val price = priceAt(it.y, cds, si, vc)
                                 val pt = ChartPoint(idx.toFloat(), price)
                                 val first = drawingStart
                                 if (first == null) {
                                     drawingStart = pt
                                 } else {
-                                    onDrawingCreated?.invoke(Drawing(tool = selectedTool, points = listOf(first, pt)))
+                                    onDrawingCreated?.invoke(Drawing(tool = tool, points = listOf(first, pt)))
                                     drawingStart = null
                                 }
                                 // volume profile tool: select a range
-                                if (selectedTool == DrawingTool.VOLUME_PROFILE) {
+                                if (tool == DrawingTool.VOLUME_PROFILE) {
                                     val s0 = selectionStart
                                     if (s0 == null) selectionStart = idx else {
                                         val lo = min(s0, idx); val hi = maxOf(s0, idx)
@@ -143,23 +163,30 @@ fun CandleChart(
                             }
                         },
                         onLongPress = {
-                            val slot = size.width / visibleCount.coerceAtLeast(1)
-                            val idx = startIndex + (it.x / slot).toInt()
-                            if (idx in candles.indices) {
+                            val cds = candlesState.value
+                            val vc = visibleCountState.value
+                            val si = startIndexState.value
+                            val slot = size.width / vc.coerceAtLeast(1)
+                            val idx = si + (it.x / slot).toInt()
+                            if (idx in cds.indices) {
                                 crosshairIndex = idx
                                 onCrosshair?.invoke(idx)
                             }
                         },
                     )
                 }
-                .pointerInput(candles, visibleCount, startIndex) {
+                .pointerInput(Unit) {
                     detectDragGestures { change, drag ->
+                        val cds = candlesState.value
+                        val vc = visibleCountState.value
+                        val si = startIndexState.value
+                        val tool = selectedToolState.value
                         // drag with no tool → pan
-                        if (selectedTool == null) {
-                            val slot = size.width / visibleCount.coerceAtLeast(1)
+                        if (tool == null && cds.isNotEmpty()) {
+                            val slot = size.width / vc.coerceAtLeast(1)
                             val shift = (-drag.x / slot).toInt()
                             if (shift != 0) {
-                                startIndex = (startIndex + shift).coerceIn(0, (candles.size - visibleCount).coerceAtLeast(0))
+                                startIndex = (si + shift).coerceIn(0, (cds.size - vc).coerceAtLeast(0))
                             }
                         }
                     }
