@@ -29,9 +29,6 @@ class WatchlistViewModel(
     private val repo: SettingsRepository,
 ) : ViewModel() {
 
-    override val viewModelScope: CoroutineScope
-        get() = super.viewModelScope
-
     private val _quotes = MutableStateFlow<Map<String, MarketQuote>>(emptyMap())
     val quotes: StateFlow<Map<String, MarketQuote>> = _quotes
 
