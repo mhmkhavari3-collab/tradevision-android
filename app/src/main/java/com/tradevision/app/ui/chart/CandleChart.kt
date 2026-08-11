@@ -201,12 +201,12 @@ fun CandleChart(
 
             // indicators
             for (ind in indicators) {
-                drawIndicator(ind, slice, yOf, slot, startIndex)
+                drawIndicator(ind, slice, ::yOf, slot, startIndex)
             }
 
             // drawings
             for (d in drawings) {
-                drawDrawing(d, candles, startIndex, visibleCount, size, yOf)
+                drawDrawing(d, candles, startIndex, visibleCount, size, ::yOf)
             }
 
             // volume profile histogram
