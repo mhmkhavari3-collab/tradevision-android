@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.tradevision.app.data.SettingsRepository
 import com.tradevision.app.ui.ChartScreen
@@ -90,7 +91,8 @@ private fun MainScaffold(
     var currentTab by remember { mutableIntStateOf(Tab.WATCHLIST.ordinal) }
     var selectedSymbol by remember { mutableStateOf<String?>(null) }
     var showSettings by remember { mutableStateOf(false) }
-    val initialSettings = remember { settingsRepo.blockingSettings() }
+    // live settings — Settings screen fields always reflect the persisted values
+    val settings by settingsRepo.settings.collectAsStateWithLifecycle()
 
     // VMs observe SettingsRepository.settings reactively — created ONCE, never recreated
     // on recomposition, and never hold a stale snapshot of AppSettings.
@@ -108,8 +110,8 @@ private fun MainScaffold(
         Box(Modifier.weight(1f)) {
             when {
                 showSettings -> SettingsScreen(
-                    initialBaseUrl = initialSettings.baseUrl,
-                    initialApiKey = initialSettings.apiKey,
+                    initialBaseUrl = settings.baseUrl,
+                    initialApiKey = settings.apiKey,
                     wsStatus = chartVm.wsStatus.value,
                     onSave = ::saveSettings,
                     onBack = { showSettings = false },
@@ -139,8 +141,8 @@ private fun MainScaffold(
                 }
                 currentTab == Tab.ALERTS.ordinal -> AlertsScreen(alertsVm)
                 currentTab == Tab.SETTINGS.ordinal -> SettingsScreen(
-                    initialBaseUrl = initialSettings.baseUrl,
-                    initialApiKey = initialSettings.apiKey,
+                    initialBaseUrl = settings.baseUrl,
+                    initialApiKey = settings.apiKey,
                     wsStatus = chartVm.wsStatus.value,
                     onSave = ::saveSettings,
                     onBack = { currentTab = Tab.WATCHLIST.ordinal },

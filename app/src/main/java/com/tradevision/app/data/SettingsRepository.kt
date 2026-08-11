@@ -9,7 +9,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.runBlocking
@@ -32,24 +31,25 @@ class SettingsRepository(
         val API_KEY = stringPreferencesKey("api_key")
     }
 
-    private val _settings: StateFlow<AppSettings> = context.dataStore.data
-        .map { prefs ->
-            AppSettings(
-                baseUrl = prefs[Keys.BASE_URL] ?: "",
-                apiKey = prefs[Keys.API_KEY] ?: "",
-            )
-        }
+    private fun Preferences.toSettings(): AppSettings = AppSettings(
+        baseUrl = this[Keys.BASE_URL] ?: "",
+        apiKey = this[Keys.API_KEY] ?: "",
+    )
+
+    /** Live settings — ViewModels collect this to react to changes. */
+    val settings: StateFlow<AppSettings> = context.dataStore.data
+        .map { it.toSettings() }
         .stateIn(
             scope = scope,
             started = SharingStarted.Eagerly,
             initialValue = AppSettings(baseUrl = "", apiKey = ""),
         )
 
-    /** Live settings — ViewModels collect this to react to changes. */
-    val settings: StateFlow<AppSettings> = _settings
-
-    /** First emission, blocking (used at startup for initial ViewModel). */
-    fun blockingSettings(): AppSettings = runBlocking { _settings.first() }
+    /**
+     * First emission, blocking — reads directly from DataStore (waits for the real
+     * persisted value, NOT the stateIn initialValue which races disk reads).
+     */
+    fun blockingSettings(): AppSettings = runBlocking { context.dataStore.data.first().toSettings() }
 
     /** Persist new settings; DataStore flow emits the new value to all collectors. */
     suspend fun save(baseUrl: String, apiKey: String) {

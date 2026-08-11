@@ -210,6 +210,18 @@ class ChartViewModel(
 
     fun load(limit: Int = 100) {
         viewModelScope.launch {
+            val base = currentBaseUrl
+            val key = currentApiKey
+            if (base.isBlank()) {
+                _uiState.value = ChartUiState.Error("Backend URL not set — open Settings")
+                _wsStatus.value = LiveCandleClient.WsStatus.CLOSED
+                return@launch
+            }
+            if (key.isBlank()) {
+                _uiState.value = ChartUiState.Error("API Key not set — open Settings")
+                _wsStatus.value = LiveCandleClient.WsStatus.CLOSED
+                return@launch
+            }
             _uiState.value = ChartUiState.Loading
             liveClient.connect(_symbol.value, _timeframe.value)
             try {

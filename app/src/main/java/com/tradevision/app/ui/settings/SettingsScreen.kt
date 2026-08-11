@@ -44,8 +44,9 @@ fun SettingsScreen(
     onSave: (String, String) -> Unit,
     onBack: () -> Unit,
 ) {
-    var baseUrl by remember { mutableStateOf(initialBaseUrl) }
-    var apiKey by remember { mutableStateOf(initialApiKey) }
+    // keyed on the persisted values so the fields refresh when settings change
+    var baseUrl by remember(initialBaseUrl) { mutableStateOf(initialBaseUrl) }
+    var apiKey by remember(initialApiKey) { mutableStateOf(initialApiKey) }
 
     Column(
         Modifier.fillMaxSize().background(TvBg).padding(16.dp).verticalScroll(rememberScrollState()),
