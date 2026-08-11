@@ -23,6 +23,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -31,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.tradevision.app.data.Candle
 import com.tradevision.app.data.Instrument
 import com.tradevision.app.data.Timeframe
+import com.tradevision.app.network.LiveCandleClient
 import com.tradevision.app.ui.chart.CandleChart
 
 @Composable
@@ -38,6 +42,7 @@ fun ChartScreen(viewModel: ChartViewModel, onOpenSettings: () -> Unit = {}) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val symbol by viewModel.symbol.collectAsStateWithLifecycle()
     val timeframe by viewModel.timeframe.collectAsStateWithLifecycle()
+    val wsStatus by viewModel.wsStatus.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize().background(Color(0xFF0E1116)).padding(8.dp)) {
         // Symbol row
@@ -47,8 +52,16 @@ fun ChartScreen(viewModel: ChartViewModel, onOpenSettings: () -> Unit = {}) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("TradeVision", color = Color.White, style = MaterialTheme.typography.titleMedium)
-            androidx.compose.material3.TextButton(onClick = onOpenSettings) {
-                Text("⚙ Settings", color = Color(0xFF26A69A))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val dotColor = when (wsStatus) {
+                    LiveCandleClient.WsStatus.CONNECTED -> Color(0xFF26A69A)
+                    LiveCandleClient.WsStatus.RECONNECTING, LiveCandleClient.WsStatus.CONNECTING -> Color(0xFFFFB300)
+                    LiveCandleClient.WsStatus.CLOSED -> Color(0xFFEF5350)
+                }
+                Box(Modifier.width(8.dp).height(8.dp).background(dotColor, RoundedCornerShape(4.dp)))
+                androidx.compose.material3.TextButton(onClick = onOpenSettings) {
+                    Text("⚙", color = Color(0xFF26A69A))
+                }
             }
         }
         LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
