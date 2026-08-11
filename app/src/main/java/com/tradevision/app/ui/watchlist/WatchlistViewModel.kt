@@ -8,25 +8,26 @@ import com.tradevision.app.data.Instrument
 import com.tradevision.app.data.MarketQuote
 import com.tradevision.app.data.SettingsRepository
 import com.tradevision.app.network.HistoryClient
+import com.tradevision.app.network.LiveCandleClient
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 
 enum class WatchSort { SYMBOL, PRICE, CHANGE_PCT, GAINERS, LOSERS }
 
 /**
- * Watchlist VM: polls /history (1m, limit 1) per symbol to derive live quotes.
- * Daily change uses the first candle of the current day as dayOpen — real data, never fabricated.
- *
- * Settings are observed reactively via [SettingsRepository.settings]; when the base URL or
- * API key changes, the polling restarts with the new values (no stale snapshot).
+ * Watchlist VM: uses WebSocket (LiveCandleClient) for tick-by-tick live quotes across all symbols.
+ * Falls back to /history for initial load, then streams live updates.
  */
 class WatchlistViewModel(
     private val repo: SettingsRepository,
-) : ViewModel() {
+) : ViewModel(), CoroutineScope by viewModelScope {
 
     private val _quotes = MutableStateFlow<Map<String, MarketQuote>>(emptyMap())
     val quotes: StateFlow<Map<String, MarketQuote>> = _quotes
@@ -37,17 +38,23 @@ class WatchlistViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error
 
-    @Volatile private var pollJob: Job? = null
+    @Volatile private var historyClient: HistoryClient = HistoryClient({ "" }, { "" })
+    @Volatile private var _baseUrl: String = ""
+    @Volatile private var _apiKey: String = ""
+    
+    // LiveCandleClient for streaming quotes
+    private val liveClients = mutableMapOf<String, LiveCandleClient>()
+    private val quoteChannels = mutableMapOf<String, Channel<Candle>>()
 
     init {
-        viewModelScope.launch {
+        launch {
             repo.settings.collect { s ->
                 applySettings(s)
             }
         }
     }
 
-    /** (Re)creates the polling client when baseUrl/apiKey actually change. */
+    /** (Re)creates clients when baseUrl/apiKey actually change. */
     private fun applySettings(s: AppSettings) {
         if (_baseUrl == s.baseUrl && _apiKey == s.apiKey) return
         _baseUrl = s.baseUrl
@@ -56,46 +63,44 @@ class WatchlistViewModel(
             baseUrlProvider = { _baseUrl },
             apiKeyProvider = { _apiKey },
         )
-        startPolling()
+        // Restart all live connections
+        stopAllLive()
+        if (_baseUrl.isNotBlank() && _apiKey.isNotBlank()) {
+            loadInitialAndStartLive()
+        }
     }
 
-    @Volatile private var _baseUrl: String = ""
-    @Volatile private var _apiKey: String = ""
-    @Volatile private var historyClient: HistoryClient = HistoryClient({ "" }, { "" })
-
-    fun startPolling() {
-        pollJob?.cancel()
-        pollJob = viewModelScope.launch {
-            while (isActive) {
-                refreshAll()
-                delay(5_000)
+    /** Initial load from history, then start WebSocket streaming for all symbols. */
+    private fun loadInitialAndStartLive() {
+        launch {
+            // Parallel initial load from history
+            val initialResults = Instrument.entries.map { ins ->
+                launch { asyncQuoteFromHistory(ins) }
             }
+            val merged = mutableMapOf<String, MarketQuote>()
+            for (j in initialResults) {
+                val r = j.join()
+                if (r != null) merged[r.symbol] = r
+            }
+            if (merged.isNotEmpty()) _quotes.value = merged
+            
+            // Start WebSocket for all symbols
+            startAllLive()
         }
     }
 
-    fun setSort(s: WatchSort) { _sort.value = s }
-
-    /** Polls each instrument in parallel; failures are skipped silently (next cycle retries). */
-    private suspend fun refreshAll() {
-        val results = Instrument.entries.map { ins ->
-            asyncQuote(ins)
-        }
-        val merged = mutableMapOf<String, MarketQuote>()
-        for (r in results) if (r != null) merged[r.symbol] = r
-        if (merged.isNotEmpty()) _quotes.value = merged
-    }
-
-    private suspend fun asyncQuote(ins: Instrument): MarketQuote? {
+    /** Load initial quote from /history (single candle). */
+    private suspend fun asyncQuoteFromHistory(ins: Instrument): MarketQuote? {
         return try {
             val resp = historyClient.history(ins.symbol, "1m", limit = 50)
             val candles = resp.candles
             if (candles.isEmpty()) return null
             val last = candles.last()
-
+            
             // day open: first candle whose openTime is within today (UTC)
             val nowMs = System.currentTimeMillis()
             val startOfDay = nowMs - (nowMs % 86_400_000L)
-            val dayCandles = candles.filter { it.openTime >= startOfDay - 3_600_000L } // allow tz slack
+            val dayCandles = candles.filter { it.openTime >= startOfDay - 3_600_000L }
             val dayOpen = dayCandles.firstOrNull()?.open ?: candles.first().open
 
             MarketQuote(
@@ -115,6 +120,82 @@ class WatchlistViewModel(
         }
     }
 
+    /** Start WebSocket streaming for all instruments. */
+    private fun startAllLive() {
+        for (ins in Instrument.entries) {
+            startLiveForSymbol(ins.symbol)
+        }
+    }
+
+    /** Start WebSocket for a single symbol. */
+    private fun startLiveForSymbol(symbol: String) {
+        val channel = Channel<Candle>(capacity = 100)
+        quoteChannels[symbol] = channel
+        
+        val client = LiveCandleClient(
+            baseUrlProvider = { _baseUrl },
+            apiKeyProvider = { _apiKey },
+            scope = viewModelScope,
+            onCandle = { candle ->
+                if (candle.symbol == symbol) {
+                    channel.trySend(candle)
+                }
+            },
+            onStatus = { status ->
+                // Status changes handled per client if needed
+            },
+        )
+        liveClients[symbol] = client
+        client.connect(symbol, "1m")
+        
+        // Consume channel and update quotes
+        launch {
+            for (candle in channel) {
+                updateQuoteFromCandle(candle)
+            }
+        }
+    }
+
+    /** Update quote from live candle tick. */
+    private fun updateQuoteFromCandle(candle: Candle) {
+        val current = _quotes.value
+        val dayOpen = current[candle.symbol]?.dayOpen ?: candle.open
+        val newQuote = current[candle.symbol]?.copy(
+            last = candle.close,
+            change = candle.close - dayOpen,
+            changePercent = if (dayOpen != 0.0) (candle.close - dayOpen) / dayOpen * 100.0 else 0.0,
+            high = maxOf(candle.high, current[candle.symbol]?.high ?: 0.0),
+            low = minOf(candle.low, current[candle.symbol]?.low ?: Double.MAX_VALUE),
+            volume = (current[candle.symbol]?.volume ?: 0L) + candle.volume,
+            updatedAt = System.currentTimeMillis(),
+        ) ?: MarketQuote(
+            symbol = candle.symbol,
+            last = candle.close,
+            change = 0.0,
+            changePercent = 0.0,
+            dayOpen = dayOpen,
+            high = candle.high,
+            low = candle.low,
+            volume = candle.volume,
+            updatedAt = System.currentTimeMillis(),
+        )
+        _quotes.value = current + (candle.symbol to newQuote)
+    }
+
+    /** Stop all live connections. */
+    private fun stopAllLive() {
+        for ((_, client) in liveClients) {
+            client.disconnect()
+        }
+        liveClients.clear()
+        for ((_, channel) in quoteChannels) {
+            channel.close()
+        }
+        quoteChannels.clear()
+    }
+
+    fun setSort(s: WatchSort) { _sort.value = s }
+
     /** Sorted list for display. */
     fun sortedQuotes(): List<MarketQuote> {
         val q = _quotes.value.values.toList()
@@ -128,7 +209,7 @@ class WatchlistViewModel(
     }
 
     override fun onCleared() {
-        pollJob?.cancel()
+        stopAllLive()
         super.onCleared()
     }
 }

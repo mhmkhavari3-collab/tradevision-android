@@ -74,10 +74,13 @@ fun CandleChart(
     var volumeProfile by remember { mutableStateOf<VolumeProfileResult?>(null) }
     var selectionStart by remember { mutableStateOf<Int?>(null) }
 
-    // Follow latest when live-follow is on
+    // Follow latest when live-follow is on — in LaunchedEffect to avoid composition conflicts
     val lastIndex = (candles.size - 1).coerceAtLeast(0)
-    if (liveFollowing && candles.isNotEmpty() && (startIndex + visibleCount) < candles.size) {
-        startIndex = (candles.size - visibleCount).coerceAtLeast(0)
+    LaunchedEffect(liveFollowing, candles.size, visibleCount, startIndex) {
+        if (liveFollowing && candles.isNotEmpty() && (startIndex + visibleCount) < candles.size) {
+            // Use snapshot to avoid recomposition loop
+            startIndex = (candles.size - visibleCount).coerceAtLeast(0)
+        }
     }
 
     // Stable state references for gesture handlers — pointerInput must NOT restart on
