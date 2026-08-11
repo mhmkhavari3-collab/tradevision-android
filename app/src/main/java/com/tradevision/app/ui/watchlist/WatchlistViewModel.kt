@@ -53,8 +53,6 @@ class WatchlistViewModel(
             }
         }
     }
-        }
-    }
 
     /** (Re)creates clients when baseUrl/apiKey actually change. */
     private fun applySettings(s: AppSettings) {
