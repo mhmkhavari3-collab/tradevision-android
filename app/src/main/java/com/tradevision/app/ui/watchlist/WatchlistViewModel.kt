@@ -18,6 +18,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 
 enum class WatchSort { SYMBOL, PRICE, CHANGE_PCT, GAINERS, LOSERS }
 
@@ -74,14 +76,12 @@ class WatchlistViewModel(
     private fun loadInitialAndStartLive() {
         launch {
             // Parallel initial load from history
-            val initialResults = Instrument.entries.map { ins ->
-                launch { asyncQuoteFromHistory(ins) }
+            val deferredResults = Instrument.entries.map { ins ->
+                async { asyncQuoteFromHistory(ins) }
             }
+            val results = awaitAll(*deferredResults.toTypedArray())
             val merged = mutableMapOf<String, MarketQuote>()
-            for (j in initialResults) {
-                val r = j.join()
-                if (r != null) merged[r.symbol] = r
-            }
+            for (r in results) if (r != null) merged[r.symbol] = r
             if (merged.isNotEmpty()) _quotes.value = merged
             
             // Start WebSocket for all symbols
