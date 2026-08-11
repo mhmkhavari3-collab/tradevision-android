@@ -27,7 +27,10 @@ enum class WatchSort { SYMBOL, PRICE, CHANGE_PCT, GAINERS, LOSERS }
  */
 class WatchlistViewModel(
     private val repo: SettingsRepository,
-) : ViewModel(), CoroutineScope by viewModelScope {
+) : ViewModel() {
+
+    override val viewModelScope: CoroutineScope
+        get() = super.viewModelScope
 
     private val _quotes = MutableStateFlow<Map<String, MarketQuote>>(emptyMap())
     val quotes: StateFlow<Map<String, MarketQuote>> = _quotes
@@ -47,7 +50,7 @@ class WatchlistViewModel(
     private val quoteChannels = mutableMapOf<String, Channel<Candle>>()
 
     init {
-        launch {
+        viewModelScope.launch {
             repo.settings.collect { s ->
                 applySettings(s)
             }
@@ -72,7 +75,7 @@ class WatchlistViewModel(
 
     /** Initial load from history, then start WebSocket streaming for all symbols. */
     private fun loadInitialAndStartLive() {
-        launch {
+        viewModelScope.launch {
             // Parallel initial load from history
             val deferredResults = Instrument.entries.map { ins ->
                 async { asyncQuoteFromHistory(ins) }
@@ -147,7 +150,7 @@ class WatchlistViewModel(
         client.connect(symbol, "1m")
         
         // Consume channel and update quotes
-        launch {
+        viewModelScope.launch {
             for (candle in channel) {
                 updateQuoteFromCandle(candle)
             }
