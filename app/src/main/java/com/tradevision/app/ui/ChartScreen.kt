@@ -63,7 +63,6 @@ fun ChartScreen(
     val selectedTool by viewModel.selectedTool.collectAsStateWithLifecycle()
 
     val ins = Instrument.fromSymbol(symbol)
-    val crypto = ins?.category == com.tradevision.app.data.Category.CRYPTO
 
     Column(Modifier.fillMaxSize().background(TvBg)) {
         // Header
@@ -104,15 +103,15 @@ fun ChartScreen(
         val last = (state as? ChartUiState.Success)?.candles?.lastOrNull()
         if (last != null) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OhlcItem("O", last.open, crypto)
-                OhlcItem("H", last.high, crypto)
-                OhlcItem("L", last.low, crypto)
-                OhlcItem("C", last.close, crypto)
+                OhlcItem("O", last.open, symbol)
+                OhlcItem("H", last.high, symbol)
+                OhlcItem("L", last.low, symbol)
+                OhlcItem("C", last.close, symbol)
                 Spacer(Modifier.weight(1f))
                 val dayOpen = (state as? ChartUiState.Success)?.candles?.firstOrNull()?.open
                 if (dayOpen != null && dayOpen != 0.0) {
                     val chg = ((last.close - dayOpen) / dayOpen * 100)
-                    Text(formatPrice(chg, true) + "%", color = changeColor(chg >= 0), fontWeight = FontWeight.Bold,
+                    Text(formatPrice(chg, symbol) + "%", color = changeColor(chg >= 0), fontWeight = FontWeight.Bold,
                         style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
                 }
             }
@@ -148,6 +147,7 @@ fun ChartScreen(
                     } else {
                         CandleChart(
                             candles = s.candles,
+                            symbol = symbol,
                             modifier = Modifier.fillMaxSize(),
                             drawings = drawings,
                             indicators = indicators,
@@ -157,6 +157,8 @@ fun ChartScreen(
                             selectedTool = selectedTool,
                             onDrawingCreated = { viewModel.addDrawing(it) },
                             onChartTap = { viewModel.setLiveFollow(true) },
+                            onNeedOlder = { viewModel.loadOlder() },
+                            startIndexShift = viewModel.startIndexShift.collectAsStateWithLifecycle().value,
                         )
                     }
                 }
@@ -188,10 +190,10 @@ fun ChartScreen(
 }
 
 @Composable
-private fun OhlcItem(label: String, v: Double, crypto: Boolean) {
+private fun OhlcItem(label: String, v: Double, symbol: String) {
     Column {
         Text(label, color = TvTextDim, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
-        Text(formatPrice(v, crypto), color = TvText, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+        Text(formatPrice(v, symbol), color = TvText, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
     }
 }
 

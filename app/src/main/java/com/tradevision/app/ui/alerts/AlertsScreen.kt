@@ -148,7 +148,7 @@ private fun AlertRow(a: PriceAlert, onToggle: () -> Unit) {
             Column {
                 Text(a.symbol, color = TvText, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "${a.condition.name.replace("_", " ")} ${a.price}",
+                    "${a.condition.name.replace("_", " ")} ${Instrument.formatPrice(a.symbol, a.price)}",
                     color = TvTextDim,
                     style = MaterialTheme.typography.labelMedium,
                 )

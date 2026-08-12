@@ -2,7 +2,6 @@ package com.tradevision.app.ui.chart
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
@@ -20,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -55,6 +55,7 @@ import kotlin.math.min
 @Composable
 fun CandleChart(
     candles: List<Candle>,
+    symbol: String,
     modifier: Modifier = Modifier,
     drawings: List<Drawing> = emptyList(),
     indicators: List<IndicatorConfig> = emptyList(),
@@ -67,6 +68,8 @@ fun CandleChart(
     onIndicatorTap: ((IndicatorConfig) -> Unit)? = null,
     onCrosshair: ((Int) -> Unit)? = null,
     onChartTap: (() -> Unit)? = null,
+    onNeedOlder: (() -> Unit)? = null,
+    startIndexShift: Int = 0, // +N when older candles were prepended (viewport preservation)
 ) {
     var startIndex by remember { mutableIntStateOf(0) }
     var visibleCount by remember { mutableIntStateOf(50) }
@@ -74,13 +77,33 @@ fun CandleChart(
     var drawingStart by remember { mutableStateOf<ChartPoint?>(null) }
     var volumeProfile by remember { mutableStateOf<VolumeProfileResult?>(null) }
     var selectionStart by remember { mutableStateOf<Int?>(null) }
+    var verticalPanOffset by remember { mutableFloatStateOf(0f) }
+    var consumedShift by remember { mutableIntStateOf(0) }
 
-    // Follow latest when live-follow is on — in LaunchedEffect to avoid composition conflicts
-    val lastIndex = (candles.size - 1).coerceAtLeast(0)
-    LaunchedEffect(liveFollowing, candles.size, visibleCount) {
-        if (liveFollowing && candles.isNotEmpty() && (startIndex + visibleCount) < candles.size) {
-            // Use snapshot to avoid recomposition loop
+    // When older candles are prepended, shift startIndex so the SAME candles stay visible.
+    LaunchedEffect(startIndexShift) {
+        if (startIndexShift > consumedShift) {
+            val delta = startIndexShift - consumedShift
+            startIndex += delta
+            consumedShift = startIndexShift
+        }
+    }
+
+    // Follow latest when live-follow is on.
+    // Keyed ONLY on liveFollowing — not on candles.size — so a WS tick
+    // (new/changed candle) never re-runs this and never yanks the view.
+    LaunchedEffect(liveFollowing) {
+        if (liveFollowing) {
+            // jump to the last candle when live-follow turns on
             startIndex = (candles.size - visibleCount).coerceAtLeast(0)
+            // then track new candles as they arrive, without touching startIndex
+            // when the user has panned away (liveFollowing will have been set false)
+            snapshotFlow { candles.size }
+                .collect { size ->
+                    if (liveFollowing && size > 0) {
+                        startIndex = (size - visibleCount).coerceAtLeast(0)
+                    }
+                }
         }
     }
 
@@ -90,16 +113,23 @@ fun CandleChart(
     val visibleCountState = rememberUpdatedState(visibleCount)
     val startIndexState = rememberUpdatedState(startIndex)
     val selectedToolState = rememberUpdatedState(selectedTool)
+    val onNeedOlderState = rememberUpdatedState(onNeedOlder)
+    val verticalPanState = rememberUpdatedState(verticalPanOffset)
 
     Box(modifier) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
+                    // Local gesture session state — updated continuously during a
+                    // pan/zoom gesture so recomposition lag never stutters the view.
+                    var localStart = startIndex
+                    var localVisible = visibleCount
+                    var localVerticalPan = 0f
                     detectTransformGestures { centroid, pan, zoom, _ ->
                         val cds = candlesState.value
-                        val vc = visibleCountState.value
-                        val si = startIndexState.value
+                        val vc = localVisible
+                        val si = localStart
                         val tool = selectedToolState.value
                         if (cds.isEmpty()) return@detectTransformGestures
                         // pinch zoom around centroid
@@ -109,20 +139,37 @@ fun CandleChart(
                             val frac = (centroid.x / size.width).coerceIn(0f, 1f)
                             val anchor = si + (vc * frac).toInt()
                             val anchorFrac = (anchor - si).toFloat() / vc
-                            startIndex = (anchor - (newCount * anchorFrac).toInt()).coerceIn(0, (cds.size - newCount).coerceAtLeast(0))
+                            val ns = (anchor - (newCount * anchorFrac).toInt()).coerceIn(0, (cds.size - newCount).coerceAtLeast(0))
+                            localStart = ns
+                            localVisible = newCount
+                            startIndex = ns
                             visibleCount = newCount
                         }
-                        if (abs(pan.x) > 0.5f && tool == null) {
+                        // pan (horizontal or vertical) with no tool
+                        if (tool == null && (abs(pan.x) > 0.5f || abs(pan.y) > 0.5f)) {
+                            // horizontal pan -> shift candles
                             val c = 0.8f
-                            val shift = (-pan.x * c / (size.width / vc.coerceAtLeast(1))).toInt()
+                            val slot = size.width / vc.coerceAtLeast(1)
+                            val shift = (-pan.x * c / slot).toInt()
                             if (shift != 0) {
-                                startIndex = (si + shift).coerceIn(0, (cds.size - vc).coerceAtLeast(0))
+                                val ns = (si + shift).coerceIn(0, (cds.size - vc).coerceAtLeast(0))
+                                localStart = ns
+                                startIndex = ns
+                            }
+                            // vertical pan -> shift price scale
+                            if (abs(pan.y) > 0.5f) {
+                                localVerticalPan += pan.y
+                                verticalPanOffset = localVerticalPan
                             }
                         }
                         if (liveFollowing && (startIndex + visibleCount) < candlesState.value.size) {
                             onLiveFollowChange(false)
                         }
                         crosshairIndex = -1
+                        // Pagination: near left edge -> load older candles
+                        if (startIndex <= 2 && cds.isNotEmpty() && onNeedOlderState.value != null) {
+                            onNeedOlderState.value?.invoke()
+                        }
                     }
                 }
                 .pointerInput(Unit) {
@@ -144,7 +191,7 @@ fun CandleChart(
                                 // place a drawing point
                                 val slot = size.width / vc.coerceAtLeast(1)
                                 val idx = si + (it.x / slot).toInt()
-                                val price = priceAt(it.y, cds, si, vc)
+                                val price = priceAt(it.y, size, verticalPanState.value, cds, si, vc)
                                 val pt = ChartPoint(idx.toFloat(), price)
                                 val first = drawingStart
                                 if (first == null) {
@@ -178,22 +225,6 @@ fun CandleChart(
                             }
                         },
                     )
-                }
-                .pointerInput(Unit) {
-                    detectDragGestures { change, drag ->
-                        val cds = candlesState.value
-                        val vc = visibleCountState.value
-                        val si = startIndexState.value
-                        val tool = selectedToolState.value
-                        // drag with no tool → pan
-                        if (tool == null && cds.isNotEmpty()) {
-                            val slot = size.width / vc.coerceAtLeast(1)
-                            val shift = (-drag.x / slot).toInt()
-                            if (shift != 0) {
-                                startIndex = (si + shift).coerceIn(0, (cds.size - vc).coerceAtLeast(0))
-                            }
-                        }
-                    }
                 },
         ) {
             if (candles.isEmpty()) return@Canvas
@@ -202,7 +233,7 @@ fun CandleChart(
             val slice = candles.subList(startIndex, endIdx)
 
             drawGrid(size)
-            drawPriceAxis(size, slice)
+            drawPriceAxis(size, slice, symbol)
             drawTimeAxis(size, slice, startIndex)
 
             val slot = size.width / slice.size
@@ -212,7 +243,8 @@ fun CandleChart(
             val range = (hi - lo).takeIf { it > 0.0 } ?: 1.0
             val pxPerUnit = (size.height * 0.86f) / range.toFloat()
             val topPad = size.height * 0.07f
-            fun yOf(v: Double): Float = topPad + (hi - v).toFloat() * pxPerUnit
+            // vertical pan: shift the whole price scale by accumulated offset
+            fun yOf(v: Double): Float = topPad + (hi - v).toFloat() * pxPerUnit + verticalPanOffset
 
             // candles
             for (i in slice.indices) {
@@ -237,12 +269,12 @@ fun CandleChart(
 
             // drawings
             for (d in drawings) {
-                drawDrawing(d, candles, startIndex, visibleCount, size, ::yOf)
+                drawDrawing(d, candles, startIndex, visibleCount, size, ::yOf, symbol)
             }
 
             // volume profile histogram
             volumeProfile?.let { vp ->
-                drawVolumeProfile(vp, size)
+                drawVolumeProfile(vp, size, symbol)
             }
 
             // crosshair
@@ -260,7 +292,7 @@ fun CandleChart(
                     isAntiAlias = true
                 }
                 drawContext.canvas.nativeCanvas.drawText(
-                    "%.2f".format(c.close),
+                    com.tradevision.app.data.Instrument.formatPrice(symbol, c.close),
                     size.width - 64f,
                     (yc - 6f).coerceAtLeast(26f),
                     paint,
@@ -284,8 +316,15 @@ fun CandleChart(
     }
 }
 
-/** Helper: convert screen y to price using current scale. */
-private fun priceAt(y: Float, candles: List<Candle>, startIndex: Int, visibleCount: Int): Double {
+/** Helper: convert screen y to price using the real chart scale. */
+private fun priceAt(
+    y: Float,
+    size: androidx.compose.ui.unit.IntSize,
+    verticalPan: Float,
+    candles: List<Candle>,
+    startIndex: Int,
+    visibleCount: Int,
+): Double {
     if (candles.isEmpty()) return 0.0
     val endIdx = (startIndex + visibleCount).coerceAtMost(candles.size)
     if (startIndex >= endIdx) return 0.0
@@ -293,14 +332,10 @@ private fun priceAt(y: Float, candles: List<Candle>, startIndex: Int, visibleCou
     val hi = slice.maxOf { it.high }
     val lo = slice.minOf { it.low }
     val range = (hi - lo).takeIf { it > 0.0 } ?: 1.0
-    val topPad = 0.07f
-    val pxPerUnit = (1f - 2 * topPad) / range.toFloat()
-    val price = hi - (y / (sizePlaceholderH * pxPerUnit))  // simplified; real calc in draw
-    return price
+    val topPad = size.height * 0.07f
+    val pxPerUnit = (size.height * 0.86f) / range.toFloat()
+    return hi - (y - topPad - verticalPan) / pxPerUnit
 }
-
-// Placeholder height for priceAt (real height comes from DrawScope)
-private const val sizePlaceholderH = 1000f
 
 private fun DrawScope.drawGrid(size: Size) {
     val hLines = 5
@@ -315,7 +350,8 @@ private fun DrawScope.drawGrid(size: Size) {
     }
 }
 
-private fun DrawScope.drawPriceAxis(size: Size, slice: List<Candle>) {
+private fun DrawScope.drawPriceAxis(size: Size, slice: List<Candle>, symbol: String) {
+    if (slice.isEmpty()) return
     val hi = slice.maxOf { it.high }
     val lo = slice.minOf { it.low }
     val paint = android.graphics.Paint().apply {
@@ -323,11 +359,15 @@ private fun DrawScope.drawPriceAxis(size: Size, slice: List<Candle>) {
         textSize = 20f
         isAntiAlias = true
     }
+    val decimals = com.tradevision.app.data.Instrument.fromSymbol(symbol)?.priceDecimals ?: 2
     val n = 4
     for (i in 0..n) {
         val v = lo + (hi - lo) * i / n
         val y = size.height * 0.07f + (size.height * 0.86f) * (1f - i.toFloat() / n)
-        drawContext.canvas.nativeCanvas.drawText("%.2f".format(v), size.width - 58f, y, paint)
+        drawContext.canvas.nativeCanvas.drawText(
+            String.format(java.util.Locale.US, "%,.${decimals}f", v),
+            size.width - 58f, y, paint,
+        )
     }
 }
 
@@ -388,7 +428,7 @@ private fun DrawScope.drawIndicator(ind: IndicatorConfig, slice: List<Candle>, y
     }
 }
 
-private fun DrawScope.drawDrawing(d: Drawing, candles: List<Candle>, startIndex: Int, visibleCount: Int, size: Size, yOf: (Double) -> Float) {
+private fun DrawScope.drawDrawing(d: Drawing, candles: List<Candle>, startIndex: Int, visibleCount: Int, size: Size, yOf: (Double) -> Float, symbol: String) {
     if (candles.isEmpty()) return
     val endIdx = (startIndex + visibleCount).coerceAtMost(candles.size)
     if (startIndex >= endIdx) return
@@ -459,7 +499,8 @@ private fun DrawScope.drawDrawing(d: Drawing, candles: List<Candle>, startIndex:
                 val y = y0 + range * lv.toFloat()
                 drawLine(Color(0x44FFFFFF), Offset(0f, y), Offset(size.width, y), strokeWidth = 0.8f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(3f, 3f)))
                 val paint = android.graphics.Paint().apply { color = TvTextDim.toArgb(); textSize = 18f; isAntiAlias = true }
-                drawContext.canvas.nativeCanvas.drawText("%.1f%%".format(lv * 100), 4f, y - 4f, paint)
+                drawContext.canvas.nativeCanvas.drawText(
+                    String.format(java.util.Locale.US, "%.1f%%", lv * 100), 4f, y - 4f, paint)
             }
         }
         DrawingTool.LONG_POSITION, DrawingTool.SHORT_POSITION -> {
@@ -479,9 +520,13 @@ private fun DrawScope.drawDrawing(d: Drawing, candles: List<Candle>, startIndex:
             drawLine(TvRed, Offset(0f, yS), Offset(size.width, yS), strokeWidth = 1f)
             drawLine(TvGreen, Offset(0f, yT), Offset(size.width, yT), strokeWidth = 1f)
             val paint = android.graphics.Paint().apply { color = TvTextDim.toArgb(); textSize = 18f; isAntiAlias = true }
-            drawContext.canvas.nativeCanvas.drawText("Entry %.2f".format(entry), 6f, yE - 4f, paint)
-            drawContext.canvas.nativeCanvas.drawText("Stop %.2f".format(stop), 6f, yS - 4f, paint)
-            drawContext.canvas.nativeCanvas.drawText("Target %.2f".format(target), 6f, yT - 4f, paint)
+            val dec = com.tradevision.app.data.Instrument.fromSymbol(symbol)?.priceDecimals ?: 2
+            drawContext.canvas.nativeCanvas.drawText(
+                "Entry " + String.format(java.util.Locale.US, "%,.${dec}f", entry), 6f, yE - 4f, paint)
+            drawContext.canvas.nativeCanvas.drawText(
+                "Stop " + String.format(java.util.Locale.US, "%,.${dec}f", stop), 6f, yS - 4f, paint)
+            drawContext.canvas.nativeCanvas.drawText(
+                "Target " + String.format(java.util.Locale.US, "%,.${dec}f", target), 6f, yT - 4f, paint)
         }
         DrawingTool.TEXT -> {
             if (d.points.isEmpty()) return
@@ -494,7 +539,7 @@ private fun DrawScope.drawDrawing(d: Drawing, candles: List<Candle>, startIndex:
     }
 }
 
-private fun DrawScope.drawVolumeProfile(vp: VolumeProfileResult, size: Size) {
+private fun DrawScope.drawVolumeProfile(vp: VolumeProfileResult, size: Size, symbol: String) {
     val maxVol = vp.bins.maxOfOrNull { it.second } ?: 1.0
     val binW = size.width * 0.16f
     val left = size.width - binW
@@ -505,7 +550,10 @@ private fun DrawScope.drawVolumeProfile(vp: VolumeProfileResult, size: Size) {
         drawRect(Color(0x334D8BFF), Offset(x, y), Size(binW * frac, 4f))
     }
     val paint = android.graphics.Paint().apply { color = TvText.toArgb(); textSize = 20f; isAntiAlias = true }
-    drawContext.canvas.nativeCanvas.drawText("POC %.2f".format(vp.pocPrice), left, priceToY(vp.pocPrice, vp.pocPrice, size) - 4f, paint)
+    val dec = com.tradevision.app.data.Instrument.fromSymbol(symbol)?.priceDecimals ?: 2
+    drawContext.canvas.nativeCanvas.drawText(
+        "POC " + String.format(java.util.Locale.US, "%,.${dec}f", vp.pocPrice),
+        left, priceToY(vp.pocPrice, vp.pocPrice, size) - 4f, paint)
 }
 
 private fun priceToY(price: Double, ref: Double, size: Size): Float =

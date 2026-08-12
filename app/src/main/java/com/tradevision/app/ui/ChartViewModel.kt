@@ -236,12 +236,56 @@ class ChartViewModel(
                     val list = resp.candles.toMutableList()
                     liveCandles = list
                     _uiState.value = ChartUiState.Success(list)
+                    hasMore = list.size >= limit
                 }
             } catch (e: Exception) {
                 _uiState.value = ChartUiState.Error(e.message ?: "Network error")
             }
         }
     }
+
+    @Volatile private var loadingOlder = false
+    @Volatile private var hasMore = true
+
+    /** Load older candles (before the oldest loaded) and PREPEND them.
+     *  Viewport is preserved by shifting startIndex by the number of appended candles. */
+    fun loadOlder() {
+        if (loadingOlder) return
+        val list = liveCandles ?: return
+        if (list.isEmpty() || !hasMore) return
+        val oldest = list.minOf { it.openTime }
+        loadingOlder = true
+        viewModelScope.launch {
+            try {
+                val resp = historyClient.history(
+                    symbol = _symbol.value,
+                    timeframe = _timeframe.value,
+                    limit = 100,
+                    before = oldest,
+                )
+                val newList = (resp.candles + list).distinctBy { it.openTime }
+                    .sortedBy { it.openTime }
+                    .toMutableList()
+                val added = newList.size - list.size
+                hasMore = resp.candles.size >= 100
+                synchronized(list) {
+                    liveCandles = newList
+                }
+                // preserve viewport: shift startIndex so the same candle stays visible
+                if (added > 0) {
+                    _startIndexShift.value = _startIndexShift.value + added
+                }
+                _uiState.value = ChartUiState.Success(newList)
+            } catch (e: Exception) {
+                // keep current view; just stop trying until next explicit pan
+            } finally {
+                loadingOlder = false
+            }
+        }
+    }
+
+    private val _startIndexShift = MutableStateFlow(0)
+    val startIndexShift: StateFlow<Int> = _startIndexShift
 
     /** Merge live candle: same openTime → replace, new → append; max 200. */
     private fun updateLiveCandle(c: Candle) {

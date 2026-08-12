@@ -122,7 +122,6 @@ private fun WatchlistRow(
 ) {
     val ins = Instrument.fromSymbol(symbol)
     val label = ins?.label ?: symbol
-    val crypto = ins?.category == Category.CRYPTO
 
     Glass(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
@@ -142,7 +141,7 @@ private fun WatchlistRow(
                 // Price + change
                 Column(horizontalAlignment = Alignment.End) {
                     Text(
-                        formatPrice(quote.last, crypto),
+                        formatPrice(quote.last, symbol),
                         color = TvText,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,

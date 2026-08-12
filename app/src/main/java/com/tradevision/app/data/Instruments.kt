@@ -12,23 +12,30 @@ enum class Instrument(
     val label: String,
     val broker: String,
     val category: Category,
+    val priceDecimals: Int,
 ) {
-    BTCUSDT("BTCUSDT", "BTC/USDT", "Binance", Category.CRYPTO),
-    ETHUSDT("ETHUSDT", "ETH/USDT", "Binance", Category.CRYPTO),
-    SOLUSDT("SOLUSDT", "SOL/USDT", "Binance", Category.CRYPTO),
+    BTCUSDT("BTCUSDT", "BTC/USDT", "Binance", Category.CRYPTO, 2),
+    ETHUSDT("ETHUSDT", "ETH/USDT", "Binance", Category.CRYPTO, 2),
+    SOLUSDT("SOLUSDT", "SOL/USDT", "Binance", Category.CRYPTO, 2),
 
-    XAUUSD("XAUUSD", "XAU/USD", "OANDA", Category.FOREX),
-    EURUSD("EURUSD", "EUR/USD", "OANDA", Category.FOREX),
-    GBPUSD("GBPUSD", "GBP/USD", "OANDA", Category.FOREX),
-    USDJPY("USDJPY", "USD/JPY", "OANDA", Category.FOREX),
-    USDCHF("USDCHF", "USD/CHF", "OANDA", Category.FOREX),
-    AUDUSD("AUDUSD", "AUD/USD", "OANDA", Category.FOREX),
-    USDCAD("USDCAD", "USD/CAD", "OANDA", Category.FOREX),
-    NZDUSD("NZDUSD", "NZD/USD", "OANDA", Category.FOREX),
+    XAUUSD("XAUUSD", "XAU/USD", "OANDA", Category.FOREX, 2),
+    EURUSD("EURUSD", "EUR/USD", "OANDA", Category.FOREX, 5),
+    GBPUSD("GBPUSD", "GBP/USD", "OANDA", Category.FOREX, 5),
+    USDJPY("USDJPY", "USD/JPY", "OANDA", Category.FOREX, 3),
+    USDCHF("USDCHF", "USD/CHF", "OANDA", Category.FOREX, 5),
+    AUDUSD("AUDUSD", "AUD/USD", "OANDA", Category.FOREX, 5),
+    USDCAD("USDCAD", "USD/CAD", "OANDA", Category.FOREX, 5),
+    NZDUSD("NZDUSD", "NZD/USD", "OANDA", Category.FOREX, 5),
     ;
 
     companion object {
         fun fromSymbol(s: String): Instrument? = entries.firstOrNull { it.symbol == s }
+
+        /** Format a price with the instrument's precision (display only — raw value never changes). */
+        fun formatPrice(symbol: String, value: Double): String {
+            val decimals = fromSymbol(symbol)?.priceDecimals ?: 2
+            return String.format(java.util.Locale.US, "%,.${decimals}f", value)
+        }
     }
 }
 

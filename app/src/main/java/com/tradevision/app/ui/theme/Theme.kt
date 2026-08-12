@@ -108,13 +108,18 @@ fun GlassPill(
 /** Price/change color helper — green for positive, red for negative. */
 fun changeColor(positive: Boolean) = if (positive) TvGreen else TvRed
 
-/** Format price with proper decimals (fx 5dp, crypto 2dp). */
-fun formatPrice(v: Double, crypto: Boolean = false): String =
-    if (crypto) {
+/**
+ * Format price with instrument-specific precision (display only — raw value never changes).
+ * Uses [Instrument.formatPrice] when symbol is known; falls back to crypto/fx default.
+ */
+fun formatPrice(v: Double, symbol: String? = null, crypto: Boolean = false): String {
+    if (symbol != null) return com.tradevision.app.data.Instrument.formatPrice(symbol, v)
+    return if (crypto) {
         if (v >= 1000) "%,.2f".format(v) else "%,.4f".format(v)
     } else {
         "%,.5f".format(v)
     }
+}
 
 /** Format signed change (+/-). */
 fun formatSigned(v: Double, suffix: String = ""): String {
