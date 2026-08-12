@@ -111,8 +111,11 @@ fun ChartScreen(
                 val dayOpen = (state as? ChartUiState.Success)?.candles?.firstOrNull()?.open
                 if (dayOpen != null && dayOpen != 0.0) {
                     val chg = ((last.close - dayOpen) / dayOpen * 100)
-                    Text(formatPrice(chg, symbol) + "%", color = changeColor(chg >= 0), fontWeight = FontWeight.Bold,
-                        style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+                    Text(
+                        String.format(java.util.Locale.US, "%+.2f%%", chg),
+                        color = changeColor(chg >= 0), fontWeight = FontWeight.Bold,
+                        style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                    )
                 }
             }
             Spacer(Modifier.height(4.dp))
@@ -156,7 +159,7 @@ fun ChartScreen(
                             onCandleRangeSelected = { a, b -> viewModel.computeVolumeProfile(a, b) },
                             selectedTool = selectedTool,
                             onDrawingCreated = { viewModel.addDrawing(it) },
-                            onChartTap = { viewModel.setLiveFollow(true) },
+                            onChartTap = { /* tap alone doesn't change live-follow; LIVE button only */ },
                             onNeedOlder = { viewModel.loadOlder() },
                             startIndexShift = viewModel.startIndexShift.collectAsStateWithLifecycle().value,
                         )

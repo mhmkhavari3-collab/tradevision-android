@@ -80,6 +80,15 @@ fun CandleChart(
     var verticalPanOffset by remember { mutableFloatStateOf(0f) }
     var consumedShift by remember { mutableIntStateOf(0) }
 
+    // Rule #10: effective visible count — never force it to equal the full candle
+    // list; leave ~15% margin so there's room to pan and the last candle is not
+    // glued to the right edge.
+    val effVisible = if (candles.size < visibleCount) {
+        (candles.size * 4 / 5).coerceAtLeast(5)
+    } else {
+        visibleCount
+    }
+
     // When older candles are prepended, shift startIndex so the SAME candles stay visible.
     LaunchedEffect(startIndexShift) {
         if (startIndexShift > consumedShift) {
@@ -95,13 +104,13 @@ fun CandleChart(
     LaunchedEffect(liveFollowing) {
         if (liveFollowing) {
             // jump to the last candle when live-follow turns on
-            startIndex = (candles.size - visibleCount).coerceAtLeast(0)
+            startIndex = (candles.size - effVisible).coerceAtLeast(0)
             // then track new candles as they arrive, without touching startIndex
             // when the user has panned away (liveFollowing will have been set false)
             snapshotFlow { candles.size }
                 .collect { size ->
                     if (liveFollowing && size > 0) {
-                        startIndex = (size - visibleCount).coerceAtLeast(0)
+                        startIndex = (size - effVisible.coerceAtMost(visibleCount)).coerceAtLeast(0)
                     }
                 }
         }
@@ -124,7 +133,7 @@ fun CandleChart(
                     // Local gesture session state — updated continuously during a
                     // pan/zoom gesture so recomposition lag never stutters the view.
                     var localStart = startIndex
-                    var localVisible = visibleCount
+                    var localVisible = effVisible
                     var localVerticalPan = 0f
                     detectTransformGestures { centroid, pan, zoom, _ ->
                         val cds = candlesState.value
@@ -132,6 +141,8 @@ fun CandleChart(
                         val si = localStart
                         val tool = selectedToolState.value
                         if (cds.isEmpty()) return@detectTransformGestures
+                        // CURSOR tool counts as "no tool" — free pan/zoom
+                        val cursorMode = tool == null || tool == DrawingTool.CURSOR
                         // pinch zoom around centroid
                         if (abs(zoom - 1f) > 0.01f) {
                             val newCount = (vc / zoom).toInt().coerceIn(5, cds.size.coerceAtLeast(5))
@@ -145,8 +156,8 @@ fun CandleChart(
                             startIndex = ns
                             visibleCount = newCount
                         }
-                        // pan (horizontal or vertical) with no tool
-                        if (tool == null && (abs(pan.x) > 0.5f || abs(pan.y) > 0.5f)) {
+                        // pan (horizontal or vertical) with no tool (CURSOR = free pan)
+                        if (cursorMode && (abs(pan.x) > 0.5f || abs(pan.y) > 0.5f)) {
                             // horizontal pan -> shift candles
                             val c = 0.8f
                             val slot = size.width / vc.coerceAtLeast(1)
@@ -162,7 +173,8 @@ fun CandleChart(
                                 verticalPanOffset = localVerticalPan
                             }
                         }
-                        if (liveFollowing && (startIndex + visibleCount) < candlesState.value.size) {
+                        // any pan/zoom = user is interacting → leave live-follow
+                        if (cursorMode && liveFollowing) {
                             onLiveFollowChange(false)
                         }
                         crosshairIndex = -1
@@ -187,7 +199,9 @@ fun CandleChart(
                             val vc = visibleCountState.value
                             val si = startIndexState.value
                             val tool = selectedToolState.value
-                            if (tool != null) {
+                            // CURSOR tool acts like no tool — tap anywhere returns to live
+                            val cursorMode = tool == null || tool == DrawingTool.CURSOR
+                            if (!cursorMode) {
                                 // place a drawing point
                                 val slot = size.width / vc.coerceAtLeast(1)
                                 val idx = si + (it.x / slot).toInt()
@@ -210,6 +224,8 @@ fun CandleChart(
                                     }
                                 }
                             } else {
+                                // CURSOR/无-tool tap: do NOT force live-follow back on.
+                                // Only the explicit LIVE button re-enables it.
                                 onChartTap?.invoke()
                             }
                         },
@@ -228,15 +244,21 @@ fun CandleChart(
                 },
         ) {
             if (candles.isEmpty()) return@Canvas
-            val endIdx = (startIndex + visibleCount).coerceAtMost(candles.size)
+            // endIdx uses effVisible so the right-edge margin (empty space past the
+            // last visible candle) is real — candles don't stretch to fill the screen.
+            val showCount = effVisible.coerceAtMost(candles.size - startIndex)
+            val endIdx = (startIndex + showCount).coerceAtMost(candles.size)
             if (startIndex >= endIdx) return@Canvas
             val slice = candles.subList(startIndex, endIdx)
 
             drawGrid(size)
             drawPriceAxis(size, slice, symbol)
-            drawTimeAxis(size, slice, startIndex)
+            drawTimeAxis(size, slice, startIndex, effVisible)
 
-            val slot = size.width / slice.size
+            // slot based on effVisible (fixed), NOT slice.size — so when the
+            // live-follow margin leaves empty space on the right, the last candle
+            // keeps its position and candles don't stretch to fill the screen.
+            val slot = size.width / effVisible.coerceAtLeast(1)
             val bodyW = (slot * 0.62f).coerceAtMost(11f)
             val hi = slice.maxOf { it.high }
             val lo = slice.minOf { it.low }
@@ -359,30 +381,31 @@ private fun DrawScope.drawPriceAxis(size: Size, slice: List<Candle>, symbol: Str
         textSize = 20f
         isAntiAlias = true
     }
-    val decimals = com.tradevision.app.data.Instrument.fromSymbol(symbol)?.priceDecimals ?: 2
     val n = 4
     for (i in 0..n) {
         val v = lo + (hi - lo) * i / n
         val y = size.height * 0.07f + (size.height * 0.86f) * (1f - i.toFloat() / n)
         drawContext.canvas.nativeCanvas.drawText(
-            String.format(java.util.Locale.US, "%,.${decimals}f", v),
+            com.tradevision.app.data.Instrument.formatPrice(symbol, v),
             size.width - 58f, y, paint,
         )
     }
 }
 
-private fun DrawScope.drawTimeAxis(size: Size, slice: List<Candle>, startIndex: Int) {
+private fun DrawScope.drawTimeAxis(size: Size, slice: List<Candle>, startIndex: Int, visibleCount: Int) {
     val paint = android.graphics.Paint().apply {
         color = TvTextDim.toArgb()
         textSize = 18f
         isAntiAlias = true
     }
+    if (slice.isEmpty()) return
+    val slot = size.width / visibleCount.coerceAtLeast(1)
     val n = 4
     for (i in 0..n) {
         val idx = i * (slice.size - 1) / n.coerceAtLeast(1)
         if (idx !in slice.indices) continue
         val c = slice[idx]
-        val x = idx * size.width / slice.size + size.width / (2 * slice.size)
+        val x = idx * slot + slot / 2f
         val t = java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(c.openTime))
         drawContext.canvas.nativeCanvas.drawText(t, x, size.height - 6f, paint)
     }
@@ -520,13 +543,12 @@ private fun DrawScope.drawDrawing(d: Drawing, candles: List<Candle>, startIndex:
             drawLine(TvRed, Offset(0f, yS), Offset(size.width, yS), strokeWidth = 1f)
             drawLine(TvGreen, Offset(0f, yT), Offset(size.width, yT), strokeWidth = 1f)
             val paint = android.graphics.Paint().apply { color = TvTextDim.toArgb(); textSize = 18f; isAntiAlias = true }
-            val dec = com.tradevision.app.data.Instrument.fromSymbol(symbol)?.priceDecimals ?: 2
             drawContext.canvas.nativeCanvas.drawText(
-                "Entry " + String.format(java.util.Locale.US, "%,.${dec}f", entry), 6f, yE - 4f, paint)
+                "Entry " + com.tradevision.app.data.Instrument.formatPrice(symbol, entry), 6f, yE - 4f, paint)
             drawContext.canvas.nativeCanvas.drawText(
-                "Stop " + String.format(java.util.Locale.US, "%,.${dec}f", stop), 6f, yS - 4f, paint)
+                "Stop " + com.tradevision.app.data.Instrument.formatPrice(symbol, stop), 6f, yS - 4f, paint)
             drawContext.canvas.nativeCanvas.drawText(
-                "Target " + String.format(java.util.Locale.US, "%,.${dec}f", target), 6f, yT - 4f, paint)
+                "Target " + com.tradevision.app.data.Instrument.formatPrice(symbol, target), 6f, yT - 4f, paint)
         }
         DrawingTool.TEXT -> {
             if (d.points.isEmpty()) return
@@ -550,9 +572,8 @@ private fun DrawScope.drawVolumeProfile(vp: VolumeProfileResult, size: Size, sym
         drawRect(Color(0x334D8BFF), Offset(x, y), Size(binW * frac, 4f))
     }
     val paint = android.graphics.Paint().apply { color = TvText.toArgb(); textSize = 20f; isAntiAlias = true }
-    val dec = com.tradevision.app.data.Instrument.fromSymbol(symbol)?.priceDecimals ?: 2
     drawContext.canvas.nativeCanvas.drawText(
-        "POC " + String.format(java.util.Locale.US, "%,.${dec}f", vp.pocPrice),
+        "POC " + com.tradevision.app.data.Instrument.formatPrice(symbol, vp.pocPrice),
         left, priceToY(vp.pocPrice, vp.pocPrice, size) - 4f, paint)
 }
 

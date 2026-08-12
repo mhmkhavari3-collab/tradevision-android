@@ -31,10 +31,30 @@ enum class Instrument(
     companion object {
         fun fromSymbol(s: String): Instrument? = entries.firstOrNull { it.symbol == s }
 
-        /** Format a price with the instrument's precision (display only — raw value never changes). */
+        /**
+         * Format a price for display (raw value never changes).
+         * 1) instrument-specific precision metadata,
+         * 2) magnitude-based fallback for unknown symbols,
+         * 3) trailing zeros trimmed when safe (consistent per-axis grouping).
+         */
         fun formatPrice(symbol: String, value: Double): String {
-            val decimals = fromSymbol(symbol)?.priceDecimals ?: 2
-            return String.format(java.util.Locale.US, "%,.${decimals}f", value)
+            val ins = fromSymbol(symbol)
+            val decimals = when {
+                ins != null -> ins.priceDecimals
+                value >= 1000.0 -> 0   // big prices → no decimals
+                value >= 100.0 -> 2
+                value >= 1.0 -> 4
+                else -> 5
+            }
+            val s = String.format(java.util.Locale.US, "%,.${decimals}f", value)
+            return if (decimals > 0 && value % 1.0 == 0.0) {
+                s.substringBefore(".")  // 63000.00 → 63000
+            } else if (decimals > 0 && ins == null) {
+                // magnitude fallback: trim trailing zeros → 1.154270 → 1.15427
+                s.trimEnd('0').trimEnd('.')
+            } else {
+                s
+            }
         }
     }
 }
