@@ -156,9 +156,12 @@ fun CandleChart(
         val slot = chartSize.width / vc.coerceAtLeast(1)
         if (slot <= 0f) return
         // horizontal: sub-pixel accumulator — slow drags accumulate fractional slots
-        // and shift only when a full slot is crossed. Sign: drag left (dx<0) should
-        // show OLDER candles → startIndex increases.
-        panAccumulator += -dx / slot
+        // and shift only when a full slot is crossed.
+        // SIGN: drag LEFT (dx<0) should show OLDER candles → startIndex DECREASES.
+        // (Earlier builds had -dx here, which inverted the direction: dragging left
+        //  increased startIndex toward maxStart — at the right edge (live-follow)
+        //  that clamped to maxStart and the chart appeared frozen/glued.)
+        panAccumulator += dx / slot
         val wholeShifts = panAccumulator.toInt()
         if (wholeShifts != 0) {
             panAccumulator -= wholeShifts.toFloat()
@@ -202,9 +205,10 @@ fun CandleChart(
         }
         // two-finger pan along with zoom — use the LOCAL newStart/newCount so both
         // apply in the same frame (no stale-state lag between zoom and pan)
+        // SIGN: same as applyPan — drag left (pan.x<0) → older candles (startIndex down)
         if (abs(pan.x) > 0.5f) {
             val slot = chartSize.width / newCount.coerceAtLeast(1)
-            val shift = (-pan.x / slot).toInt()
+            val shift = (pan.x / slot).toInt()
             if (shift != 0) {
                 newStart = (newStart + shift).coerceIn(0, (cds.size - newCount).coerceAtLeast(0))
             }
@@ -377,10 +381,18 @@ fun CandleChart(
                 },
         ) {
             if (candles.isEmpty()) return@Canvas
-            // endIdx uses effVisible so the right-edge margin (empty space past the
-            // last visible candle) is real — candles don't stretch to fill the screen.
-            val showCount = effVisible.coerceAtMost(candles.size - startIndex)
-            val endIdx = (startIndex + showCount).coerceAtMost(candles.size)
+            // Real right-edge margin: when the view is at the last candles
+            // (startIndex + effVisible reaches the end), show only ~80% of them so
+            // the newest candle rests at ~79% of the width and there is visible
+            // empty space on the right (scroll affordance). Otherwise show effVisible.
+            val atRightEdge = startIndex + effVisible >= candles.size
+            val targetCount = if (atRightEdge) {
+                (effVisible * 4 / 5).coerceAtLeast(5)
+            } else {
+                effVisible
+            }
+            val showCount = targetCount.coerceAtMost(candles.size - startIndex)
+            val endIdx = startIndex + showCount
             if (startIndex >= endIdx) return@Canvas
             val slice = candles.subList(startIndex, endIdx)
 
