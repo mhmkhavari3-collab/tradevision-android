@@ -2,8 +2,11 @@ package com.tradevision.app.ui.chart
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -15,6 +18,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -49,6 +53,12 @@ import com.tradevision.app.ui.theme.TvTextDim
 import kotlin.math.abs
 import kotlin.math.min
 
+// ── Gesture constants ─────────────────────────────────────────────
+private const val TOUCH_SLOP = 8f          // px movement before a drag is a pan
+private const val LONG_PRESS_MS = 400L     // held-still → crosshair
+private const val DOUBLE_TAP_MS = 300L     // between-tap window
+private const val PREFETCH_THRESHOLD = 5   // candles from left edge → loadOlder()
+
 /** Interactive candlestick chart v3 — TradingView-like:
  *  pinch zoom, pan, double-tap zoom, crosshair (long-press), price/time axes, grid,
  *  LIVE-follow, drawings (trendline/ray/rect/fib/long-short/volume-profile), indicators. */
@@ -79,14 +89,19 @@ fun CandleChart(
     var selectionStart by remember { mutableStateOf<Int?>(null) }
     var verticalPanOffset by remember { mutableFloatStateOf(0f) }
     var consumedShift by remember { mutableIntStateOf(0) }
+    // Sub-pixel pan accumulator: slow drags produce events smaller than one candle
+    // slot. Truncating per-event gives shift=0 forever (pan glues to the edge).
+    // We accumulate fractionally and only shift when a full slot accumulates.
+    var panAccumulator by remember { mutableFloatStateOf(0f) }
 
-    // Rule #10: effective visible count — never force it to equal the full candle
-    // list; leave ~15% margin so there's room to pan and the last candle is not
-    // glued to the right edge.
-    val effVisible = if (candles.size < visibleCount) {
-        (candles.size * 4 / 5).coerceAtLeast(5)
-    } else {
+    // Effective visible count — CRITICAL: when candles.size <= visibleCount (e.g. the
+    // initial 50-candle load), we must NOT show all of them. Showing 50/50 gives
+    // maxStart = 0 → zero panning room → chart looks glued to the right edge and
+    // cannot move. Cap at ~80% so there is always room to pan + right-edge margin.
+    val effVisible = if (candles.size > visibleCount) {
         visibleCount
+    } else {
+        (candles.size * 4 / 5).coerceAtLeast(5)
     }
 
     // When older candles are prepended, shift startIndex so the SAME candles stay visible.
@@ -120,92 +135,223 @@ fun CandleChart(
     // every WS tick (candles change) or mid-gesture pan/zoom gets cancelled.
     val candlesState = rememberUpdatedState(candles)
     val visibleCountState = rememberUpdatedState(visibleCount)
+    val effVisibleState = rememberUpdatedState(effVisible)
     val startIndexState = rememberUpdatedState(startIndex)
     val selectedToolState = rememberUpdatedState(selectedTool)
     val onNeedOlderState = rememberUpdatedState(onNeedOlder)
     val verticalPanState = rememberUpdatedState(verticalPanOffset)
+    val liveFollowingState = rememberUpdatedState(liveFollowing)
+    val onLiveFollowChangeState = rememberUpdatedState(onLiveFollowChange)
 
+    // cross-gesture tap bookkeeping (survives across gesture sessions)
+    var lastTapTime by remember { mutableLongStateOf(0L) }
+
+    // ── Shared pan/zoom logic (used by the central gesture pipeline) ──────────
+    fun applyPan(dx: Float, dy: Float, chartSize: androidx.compose.ui.unit.IntSize) {
+        val cds = candlesState.value
+        if (cds.isEmpty()) return
+        // read ALL inputs from states so the first-run closure stays fresh
+        val vc = effVisibleState.value
+        val si = startIndexState.value
+        val slot = chartSize.width / vc.coerceAtLeast(1)
+        if (slot <= 0f) return
+        // horizontal: sub-pixel accumulator — slow drags accumulate fractional slots
+        // and shift only when a full slot is crossed. Sign: drag left (dx<0) should
+        // show OLDER candles → startIndex increases.
+        panAccumulator += -dx / slot
+        val wholeShifts = panAccumulator.toInt()
+        if (wholeShifts != 0) {
+            panAccumulator -= wholeShifts.toFloat()
+            val maxStart = (cds.size - vc).coerceAtLeast(0)
+            val newSi = (si + wholeShifts).coerceIn(0, maxStart)
+            // if clamped at an edge, drop the leftover accumulator so a later
+            // reversal doesn't "jump" suddenly
+            if (newSi == si) panAccumulator = 0f
+            startIndex = newSi
+        }
+        // vertical: shift price scale
+        if (abs(dy) > 0.05f) {
+            verticalPanOffset += dy * 0.8f
+        }
+        // any pan → leave live-follow immediately (even at the edge)
+        if (liveFollowingState.value) onLiveFollowChangeState.value(false)
+        crosshairIndex = -1
+        // pagination: near left edge → request older candles
+        if (startIndex <= PREFETCH_THRESHOLD && onNeedOlderState.value != null) {
+            onNeedOlderState.value?.invoke()
+        }
+    }
+
+    fun applyZoom(zoom: Float, pan: Offset, centroid: Offset, chartSize: androidx.compose.ui.unit.IntSize) {
+        val cds = candlesState.value
+        if (cds.isEmpty()) return
+        val vc = visibleCountState.value
+        val si = startIndexState.value
+        var newCount = vc
+        var newStart = si
+        if (abs(zoom - 1f) > 0.01f) {
+            newCount = (vc / zoom).toInt().coerceIn(5, cds.size.coerceAtLeast(5))
+            // keep the candle under the centroid fixed
+            val frac = (centroid.x / chartSize.width).coerceIn(0f, 1f)
+            val anchor = si + (vc * frac).toInt()
+            if (newCount > 0) {
+                val anchorFrac = (anchor - si).toFloat() / vc
+                newStart = (anchor - (newCount * anchorFrac).toInt())
+                    .coerceIn(0, (cds.size - newCount).coerceAtLeast(0))
+            }
+        }
+        // two-finger pan along with zoom — use the LOCAL newStart/newCount so both
+        // apply in the same frame (no stale-state lag between zoom and pan)
+        if (abs(pan.x) > 0.5f) {
+            val slot = chartSize.width / newCount.coerceAtLeast(1)
+            val shift = (-pan.x / slot).toInt()
+            if (shift != 0) {
+                newStart = (newStart + shift).coerceIn(0, (cds.size - newCount).coerceAtLeast(0))
+            }
+        }
+        startIndex = newStart
+        visibleCount = newCount
+        if (abs(pan.y) > 0.5f) {
+            verticalPanOffset += pan.y * 0.8f
+        }
+        if (liveFollowingState.value) onLiveFollowChangeState.value(false)
+        crosshairIndex = -1
+        if (startIndex <= PREFETCH_THRESHOLD && onNeedOlderState.value != null) {
+            onNeedOlderState.value?.invoke()
+        }
+    }
+
+    fun handleDoubleTap() {
+        val cds = candlesState.value
+        if (cds.isEmpty()) return
+        val vc = visibleCountState.value
+        val si = startIndexState.value
+        val newCount = (vc / 1.8f).toInt().coerceIn(5, cds.size.coerceAtLeast(5))
+        startIndex = ((si + vc / 2) - newCount / 2).coerceIn(0, (cds.size - newCount).coerceAtLeast(0))
+        visibleCount = newCount
+        if (liveFollowingState.value) onLiveFollowChangeState.value(false)
+    }
+
+    // per-symbol precision for tap drawing / crosshair
     Box(modifier) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
                 .pointerInput(Unit) {
-                    // Local gesture session state — updated continuously during a
-                    // pan/zoom gesture so recomposition lag never stutters the view.
-                    var localStart = startIndex
-                    var localVisible = effVisible
-                    var localVerticalPan = 0f
-                    detectTransformGestures { centroid, pan, zoom, _ ->
-                        val cds = candlesState.value
-                        val vc = localVisible
-                        val si = localStart
-                        val tool = selectedToolState.value
-                        if (cds.isEmpty()) return@detectTransformGestures
-                        // CURSOR tool counts as "no tool" — free pan/zoom
-                        val cursorMode = tool == null || tool == DrawingTool.CURSOR
-                        // pinch zoom around centroid
-                        if (abs(zoom - 1f) > 0.01f) {
-                            val newCount = (vc / zoom).toInt().coerceIn(5, cds.size.coerceAtLeast(5))
-                            // keep candle under centroid fixed
-                            val frac = (centroid.x / size.width).coerceIn(0f, 1f)
-                            val anchor = si + (vc * frac).toInt()
-                            val anchorFrac = (anchor - si).toFloat() / vc
-                            val ns = (anchor - (newCount * anchorFrac).toInt()).coerceIn(0, (cds.size - newCount).coerceAtLeast(0))
-                            localStart = ns
-                            localVisible = newCount
-                            startIndex = ns
-                            visibleCount = newCount
-                        }
-                        // pan (horizontal or vertical) with no tool (CURSOR = free pan)
-                        if (cursorMode && (abs(pan.x) > 0.5f || abs(pan.y) > 0.5f)) {
-                            // horizontal pan -> shift candles
-                            val c = 0.8f
-                            val slot = size.width / vc.coerceAtLeast(1)
-                            val shift = (-pan.x * c / slot).toInt()
-                            if (shift != 0) {
-                                val ns = (si + shift).coerceIn(0, (cds.size - vc).coerceAtLeast(0))
-                                localStart = ns
-                                startIndex = ns
+                    // ── SINGLE CENTRAL GESTURE PIPELINE ─────────────────────────
+                    // 1 finger  → PAN (horizontal candles + vertical price scale)
+                    // 2+ fingers → PINCH ZOOM around centroid (plus pan)
+                    // tap / double-tap / long-press handled when no movement occurs.
+                    // pointerInput(Unit) — never restarted by WS ticks or candle changes.
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        var gestureMode = 0 // 0=unset, 1=pan, 2=zoom
+                        var lastCentroid = down.position
+                        var startPos = down.position
+                        var moved = false
+                        var panAccumX = 0f
+                        var panAccumY = 0f
+                        var suppressTap = false
+                        val downTime = java.lang.System.currentTimeMillis()
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val pressed = event.changes.count { it.pressed }
+                            if (pressed == 0) {
+                                // gesture ended — disambiguate tap vs double-tap.
+                                // Only zoom on double-tap when NO drawing tool is active
+                                // (CURSOR / plain chart tap); a drawing tool wants both
+                                // taps to place points, not zoom.
+                                val now = java.lang.System.currentTimeMillis()
+                                if (!moved && !suppressTap) {
+                                    val tool = selectedToolState.value
+                                    val cursorMode = tool == null || tool == DrawingTool.CURSOR
+                                    if (cursorMode && now - lastTapTime < DOUBLE_TAP_MS) {
+                                        handleDoubleTap()
+                                        lastTapTime = 0L
+                                        suppressTap = true
+                                    } else {
+                                        lastTapTime = now
+                                    }
+                                }
+                                break
                             }
-                            // vertical pan -> shift price scale
-                            if (abs(pan.y) > 0.5f) {
-                                localVerticalPan += pan.y
-                                verticalPanOffset = localVerticalPan
+
+                            val pos = event.changes[0].position
+                            moved = moved || abs(pos.x - startPos.x) > TOUCH_SLOP ||
+                                abs(pos.y - startPos.y) > TOUCH_SLOP
+
+                            // long-press (finger held still) → crosshair
+                            if (!moved && !suppressTap &&
+                                java.lang.System.currentTimeMillis() - downTime > LONG_PRESS_MS
+                            ) {
+                                suppressTap = true
+                                val cds = candlesState.value
+                                if (cds.isNotEmpty()) {
+                                    val vc = visibleCountState.value
+                                    val si = startIndexState.value
+                                    val slot = size.width / vc.coerceAtLeast(1)
+                                    val idx = si + (pos.x / slot).toInt()
+                                    if (idx in cds.indices) {
+                                        crosshairIndex = idx
+                                        onCrosshair?.invoke(idx)
+                                    }
+                                }
+                                event.changes.forEach { it.consume() }
+                                continue
                             }
+
+                            // choose mode on first significant event
+                            if (gestureMode == 0) {
+                                if (pressed >= 2) {
+                                    gestureMode = 2
+                                    lastCentroid = event.calculateCentroid(useCurrent = true)
+                                } else if (moved) {
+                                    gestureMode = 1
+                                    // anchor to the DOWN position (not current) so the
+                                    // first movement delta is not lost
+                                    lastCentroid = startPos
+                                    suppressTap = true
+                                }
+                            }
+
+                            if (gestureMode == 2) {
+                                // PINCH ZOOM + 2-finger pan
+                                val zoom = event.calculateZoom()
+                                val pan = event.calculatePan()
+                                val centroid = event.calculateCentroid(useCurrent = true)
+                                if (abs(zoom - 1f) > 0.01f || abs(pan.x) > 0.5f || abs(pan.y) > 0.5f) {
+                                    applyZoom(zoom, pan, centroid, size)
+                                }
+                            } else if (gestureMode == 1) {
+                                // PAN (1 finger) — accumulate px so slow drags still move
+                                panAccumX += pos.x - lastCentroid.x
+                                panAccumY += pos.y - lastCentroid.y
+                                lastCentroid = pos
+                                val dx = panAccumX
+                                val dy = panAccumY
+                                panAccumX = 0f
+                                panAccumY = 0f
+                                applyPan(dx, dy, size)
+                            }
+
+                            if (pressed >= 2) lastCentroid = event.calculateCentroid(useCurrent = true)
+                            else lastCentroid = event.changes[0].position
+                            event.changes.forEach { it.consume() }
                         }
-                        // any pan/zoom = user is interacting → leave live-follow
-                        if (cursorMode && liveFollowing) {
-                            onLiveFollowChange(false)
-                        }
-                        crosshairIndex = -1
-                        // Pagination: near left edge -> load older candles
-                        if (startIndex <= 2 && cds.isNotEmpty() && onNeedOlderState.value != null) {
-                            onNeedOlderState.value?.invoke()
-                        }
-                    }
-                }
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onDoubleTap = {
-                            val cds = candlesState.value
-                            val vc = visibleCountState.value
-                            val si = startIndexState.value
-                            val newCount = (vc / 1.8f).toInt().coerceIn(5, cds.size.coerceAtLeast(5))
-                            startIndex = ((si + vc / 2) - newCount / 2).coerceIn(0, (cds.size - newCount).coerceAtLeast(0))
-                            visibleCount = newCount
-                        },
-                        onTap = {
+
+                        // TAP (no movement, no long-press): delayed so a double-tap
+                        // is not misinterpreted as two single taps.
+                        if (!moved && !suppressTap) {
                             val cds = candlesState.value
                             val vc = visibleCountState.value
                             val si = startIndexState.value
                             val tool = selectedToolState.value
-                            // CURSOR tool acts like no tool — tap anywhere returns to live
                             val cursorMode = tool == null || tool == DrawingTool.CURSOR
                             if (!cursorMode) {
-                                // place a drawing point
                                 val slot = size.width / vc.coerceAtLeast(1)
-                                val idx = si + (it.x / slot).toInt()
-                                val price = priceAt(it.y, size, verticalPanState.value, cds, si, vc)
+                                val idx = si + (startPos.x / slot).toInt()
+                                val price = priceAt(startPos.y, size, verticalPanState.value, cds, si, vc)
                                 val pt = ChartPoint(idx.toFloat(), price)
                                 val first = drawingStart
                                 if (first == null) {
@@ -214,7 +360,6 @@ fun CandleChart(
                                     onDrawingCreated?.invoke(Drawing(tool = tool, points = listOf(first, pt)))
                                     drawingStart = null
                                 }
-                                // volume profile tool: select a range
                                 if (tool == DrawingTool.VOLUME_PROFILE) {
                                     val s0 = selectionStart
                                     if (s0 == null) selectionStart = idx else {
@@ -224,23 +369,11 @@ fun CandleChart(
                                     }
                                 }
                             } else {
-                                // CURSOR/无-tool tap: do NOT force live-follow back on.
-                                // Only the explicit LIVE button re-enables it.
+                                // CURSOR / no-tool tap: don't force live-follow back on
                                 onChartTap?.invoke()
                             }
-                        },
-                        onLongPress = {
-                            val cds = candlesState.value
-                            val vc = visibleCountState.value
-                            val si = startIndexState.value
-                            val slot = size.width / vc.coerceAtLeast(1)
-                            val idx = si + (it.x / slot).toInt()
-                            if (idx in cds.indices) {
-                                crosshairIndex = idx
-                                onCrosshair?.invoke(idx)
-                            }
-                        },
-                    )
+                        }
+                    }
                 },
         ) {
             if (candles.isEmpty()) return@Canvas
