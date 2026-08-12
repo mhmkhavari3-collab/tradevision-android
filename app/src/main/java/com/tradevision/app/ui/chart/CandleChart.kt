@@ -118,14 +118,19 @@ fun CandleChart(
     // (new/changed candle) never re-runs this and never yanks the view.
     LaunchedEffect(liveFollowing) {
         if (liveFollowing) {
-            // jump to the last candle when live-follow turns on
-            startIndex = (candles.size - effVisible).coerceAtLeast(0)
+            // jump to the last candle when live-follow turns on.
+            // IMPORTANT: land on the RIGHT-EDGE anchor (show only ~80% of the
+            // candles so the newest candle rests at ~79% width and the right-edge
+            // margin is real). startIndex = size - rightEdgeCount, NOT size - effVisible,
+            // otherwise the newest candles are cut off and the right side is empty.
+            val rightEdgeCount = (effVisible * 4 / 5).coerceAtLeast(5)
+            startIndex = (candles.size - rightEdgeCount).coerceAtLeast(0)
             // then track new candles as they arrive, without touching startIndex
             // when the user has panned away (liveFollowing will have been set false)
             snapshotFlow { candles.size }
                 .collect { size ->
                     if (liveFollowing && size > 0) {
-                        startIndex = (size - effVisible.coerceAtMost(visibleCount)).coerceAtLeast(0)
+                        startIndex = (size - rightEdgeCount).coerceAtLeast(0)
                     }
                 }
         }
@@ -165,7 +170,11 @@ fun CandleChart(
         val wholeShifts = panAccumulator.toInt()
         if (wholeShifts != 0) {
             panAccumulator -= wholeShifts.toFloat()
-            val maxStart = (cds.size - vc).coerceAtLeast(0)
+            // maxStart respects the right-edge margin: the view can sit with the
+            // newest candle at ~79% width (startIndex = size - rightEdgeCount).
+            // Using size - vc here would clamp startIndex=18 (right-edge anchor)
+            // back down to 10 and make the chart jump.
+            val maxStart = (cds.size - (vc * 4 / 5).coerceAtLeast(5)).coerceAtLeast(0)
             val newSi = (si + wholeShifts).coerceIn(0, maxStart)
             // if clamped at an edge, drop the leftover accumulator so a later
             // reversal doesn't "jump" suddenly
@@ -210,7 +219,9 @@ fun CandleChart(
             val slot = chartSize.width / newCount.coerceAtLeast(1)
             val shift = (pan.x / slot).toInt()
             if (shift != 0) {
-                newStart = (newStart + shift).coerceIn(0, (cds.size - newCount).coerceAtLeast(0))
+                // same right-edge-aware maxStart as applyPan
+                val maxStart = (cds.size - (newCount * 4 / 5).coerceAtLeast(5)).coerceAtLeast(0)
+                newStart = (newStart + shift).coerceIn(0, maxStart)
             }
         }
         startIndex = newStart
